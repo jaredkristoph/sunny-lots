@@ -8,7 +8,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:#6fb85f;font-family:'Trebuchet MS',Verdana,sans-serif;color:#3b2a1a}
 canvas#game,canvas#labels{position:fixed;inset:0;width:100%;height:100%;display:block}
-canvas#game{image-rendering:pixelated}
+canvas#game{image-rendering:-moz-crisp-edges;image-rendering:pixelated;image-rendering:crisp-edges}
 canvas#labels{pointer-events:none}
 .item img,.lrow img,.ico{image-rendering:pixelated}
 .item img{width:56px;height:56px;object-fit:contain}

@@ -272,7 +272,7 @@
   // ---------- 3D view ----------
   const cv = $('#game'), lab = $('#labels'), lctx = lab.getContext('2d');
   const view = new Vox.View(cv);
-  let PIX = 3, zoom = 22, yawT = view.yaw, mouse = { x: 0, y: 0 };
+  let PIX = 2, zoom = 30, yawT = view.yaw, mouse = { x: 0, y: 0 };
   const scaleX = () => innerWidth / cv.width, scaleY = () => innerHeight / cv.height;
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
   const toPage = (X, Y, Z) => { const s = view.toScreen(X, Y, Z); return [s[0] * scaleX(), s[1] * scaleY(), s[2]]; };
@@ -435,7 +435,7 @@
   cv.addEventListener('mousedown', e => { if (e.button === 2 || e.button === 1) { drag = e.clientX; e.preventDefault(); } });
   addEventListener('mouseup', () => { drag = null; });
   addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; if (drag !== null) { const d = (e.clientX - drag) * .012; drag = e.clientX; yawT += d; view.yaw += d; } });
-  cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(13, Math.min(40, zoom * (e.deltaY < 0 ? 1.1 : .91))); }, { passive: false });
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(18, Math.min(48, zoom * (e.deltaY < 0 ? 1.1 : .91))); }, { passive: false });
   cv.addEventListener('click', e => clickScreen(e.clientX, e.clientY));
 
   // ---------- rendering ----------
@@ -459,9 +459,13 @@
     requestAnimationFrame(frame);
     const dt = Math.min(.05, (tNow - last) / 1000); last = tNow; const t = tNow / 1000;
     const vw = innerWidth, vh = innerHeight, dpr = window.devicePixelRatio || 1;
-    PIX = vw < 700 ? 2 : 3;
+    // lower PIX = sharper (less CSS upscale blur). Was 3/2; 2 keeps edges crisp without killing FPS
+    PIX = 2;
     const bw = Math.ceil(vw / PIX), bh = Math.ceil(vh / PIX);
-    if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+    if (cv.width !== bw || cv.height !== bh) {
+      cv.width = bw; cv.height = bh;
+      view.ctx.imageSmoothingEnabled = false;
+    }
     if (lab.width !== Math.round(vw * dpr) || lab.height !== Math.round(vh * dpr)) { lab.width = Math.round(vw * dpr); lab.height = Math.round(vh * dpr); }
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.clearRect(0, 0, vw, vh);
     if (!started) { view.prep(); view.clear('#7ec96a'); return; }

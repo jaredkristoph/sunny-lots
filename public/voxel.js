@@ -30,8 +30,9 @@ const Vox = (() => {
   ];
   class View {
     constructor(canvas) {
-      this.cv = canvas; this.ctx = canvas.getContext('2d');
-      this.yaw = .78; this.pitch = .88; this.ppt = 22; this.fx = 0; this.fz = 0; this.hcf = .55;
+      this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
+      this.ctx.imageSmoothingEnabled = false;
+      this.yaw = .78; this.pitch = .88; this.ppt = 28; this.fx = 0; this.fz = 0; this.hcf = .55;
       this.groups = []; this.P = new Float64Array(16);
     }
     prep() {
