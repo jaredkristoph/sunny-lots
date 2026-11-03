@@ -177,8 +177,8 @@ const WORLD = {
   landSize: LAND_SIZE,
   // 8 farm + 4 expansion + 8 house + 1 NPC model home (indices 0–7 forever farm starters)
   landCount: 21,
-  width: 72,
-  height: 58,
+  width: 74,
+  height: 66,
   lands: [],
   // shop sits in the 5-tile crossroads between the 8 farm plots
   shop: { x: 23, y: 10, w: 5, h: 4 },
@@ -211,12 +211,12 @@ for (let i = 0; i < 8; i++) {
     expand: false,
   });
 }
-// Expansion farm lots (8–11) — far east, expensive
+// Expansion farm lots (8–11) — far east, clear of house/NPC lots
 WORLD.lands.push(
-  { x: 60, y: 2, expand: true },
-  { x: 60, y: 16, expand: true },
-  { x: 60, y: 30, expand: true },
-  { x: 60, y: 44, expand: true },
+  { x: 62, y: 2, expand: true },
+  { x: 62, y: 16, expand: true },
+  { x: 62, y: 30, expand: true },
+  { x: 62, y: 44, expand: true },
 );
 // House-building lots (12–19) — south of the farm grid (not expandable)
 for (let i = 0; i < 8; i++) {
@@ -226,24 +226,26 @@ for (let i = 0; i < 8; i++) {
     house: true,
   });
 }
-// NPC model home (20) — fully furnished showcase next to house lots
-WORLD.lands.push({ x: 54, y: 32, house: true, npc: true });
+// NPC model home (20) — south of house lots, clear of expansions (needs height ≥ 66)
+WORLD.lands.push({ x: 28, y: 54, house: true, npc: true });
+WORLD.width = 74;
+WORLD.height = 66;
 
-// Furniture layout for the NPC model home (relative tiles)
+// Interior furniture only — walls/roof come from the cottage shell voxel
+const NPC_HOME_VER = 3;
 const NPC_HOME_FURN = [
-  ['0,0', 'wall_0'], ['1,0', 'wall_0'], ['2,0', 'window_2'], ['3,0', 'wall_0'], ['4,0', 'door_1'], ['5,0', 'wall_0'], ['6,0', 'window_0'], ['7,0', 'wall_0'],
-  ['0,1', 'wall_0'], ['7,1', 'wall_0'],
-  ['0,2', 'wall_0'], ['7,2', 'window_1'],
-  ['0,3', 'wall_0'], ['7,3', 'wall_0'],
-  ['0,7', 'hedge_0'], ['1,7', 'gate_3'], ['2,7', 'hedge_0'], ['5,7', 'hedge_1'], ['6,7', 'hedge_0'], ['7,7', 'hedge_0'],
-  ['1,1', 'bed_3'], ['2,1', 'wardrobe_1'], ['3,1', 'lamp_3'],
-  ['5,1', 'bookshelf_2'], ['6,1', 'desk_3'],
-  ['1,3', 'sofa_2'], ['2,3', 'rug_1'], ['3,3', 'tv_3'], ['4,3', 'table_2'],
-  ['1,5', 'fridge_0'], ['2,5', 'stove_2'], ['3,5', 'counter_0'], ['4,5', 'sink_2'],
-  ['6,5', 'toilet_0'], ['6,4', 'mirror_2'],
-  ['5,6', 'plantpot_1'], ['2,6', 'clock_3'], ['4,1', 'chest_2'],
-  ['3,2', 'piano_3'], ['6,2', 'aquarium_1'], ['1,6', 'fireplace_1'],
-  ['7,6', 'mailbox_3'], ['0,6', 'statue_3'], ['4,6', 'fountain_2'],
+  // bedroom (back-left)
+  ['1,1', 'bed_1'], ['2,1', 'wardrobe_0'], ['1,2', 'lamp_0'], ['2,2', 'chest_0'],
+  // living room (center)
+  ['3,2', 'sofa_0'], ['4,2', 'rug_0'], ['5,2', 'tv_0'], ['4,3', 'table_0'], ['3,3', 'lamp_1'], ['5,3', 'bookshelf_0'],
+  // kitchen (right)
+  ['6,1', 'fridge_0'], ['6,2', 'stove_0'], ['6,3', 'counter_0'], ['5,1', 'sink_0'],
+  // bath (front-right corner nook)
+  ['6,5', 'toilet_0'], ['6,4', 'mirror_0'],
+  // cozy extras
+  ['2,4', 'fireplace_0'], ['3,4', 'plantpot_0'], ['1,5', 'clock_0'],
+  // front garden path
+  ['2,7', 'hedge_0'], ['3,7', 'gate_0'], ['4,7', 'hedge_0'], ['5,7', 'mailbox_0'], ['1,7', 'plantpot_1'],
 ];
 
 // Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
@@ -294,7 +296,7 @@ const MINIGAMES = {
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
   GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_GROW, SQUARE_MAX, squarePrice,
-  TAP_MIN, TAP_MAX, NPC_HOME_FURN,
+  TAP_MIN, TAP_MAX, NPC_HOME_FURN, NPC_HOME_VER,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),

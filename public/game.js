@@ -380,6 +380,7 @@
     }
   }
   WD.lands.forEach(o => {
+    if (o.npc) return; // model home uses cottage shell + garden, not farm fencing
     for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) {
       const edges = []; if (ly === 0) edges.push('n'); if (ly === LS - 1) edges.push('s'); if (lx === 0) edges.push('w'); if (lx === LS - 1) edges.push('e');
       if (!edges.length) continue;
@@ -432,7 +433,12 @@
       const tree = Vox.mk(); tree.add(0, 0, 0, .18, .55, .18, '#7a5230').add(0, .5, 0, .7, .4, .7, '#2f9e44').add(0, .85, 0, .5, .35, .5, '#40c057');
       piece(tree, P.x + 1.2, P.y + 1.5, 1.2); piece(tree, P.x + 8.5, P.y + 5.2, 1.2);
     }
-    WD.lands.forEach((o, i) => piece(Vox.landPost(), o.x + .35, o.y + .35, 1.0));
+    WD.lands.forEach((o, i) => {
+      if (o.npc) {
+        piece(Vox.modelHomeCottage(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
+        piece(Vox.landPost(), o.x + .35, o.y + LS - .4, 1.0);
+      } else piece(Vox.landPost(), o.x + .35, o.y + .35, 1.0);
+    });
   })();
 
   // ---------- picking ----------

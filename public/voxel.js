@@ -404,6 +404,47 @@ const Vox = (() => {
     B.add(0, .72, .05, .48, .3, .02, '#fff8e1');
     return B;
   }
+  // Cohesive cottage shell for the Sunny Homes model lot (walls + roof + porch)
+  function modelHomeCottage() {
+    const B = mk();
+    const wall = '#f3e2c4', trim = '#8a5a2b', roof = '#c92a2a', roofDk = '#a61e1e', glass = '#a8d8f0';
+    // raised floor / foundation
+    B.add(0, 0, -.15, 5.6, .12, 4.4, '#b08968');
+    B.add(0, .12, -.15, 5.4, .06, 4.2, '#e8d4a8');
+    // back wall
+    B.add(0, .18, -2.15, 5.4, 1.55, .18, wall);
+    // side walls
+    B.add(-2.6, .18, -.15, .18, 1.55, 4.2, wall);
+    B.add(2.6, .18, -.15, .18, 1.55, 4.2, wall);
+    // front wall with door gap
+    B.add(-1.7, .18, 1.9, 2.0, 1.55, .18, wall);
+    B.add(1.7, .18, 1.9, 2.0, 1.55, .18, wall);
+    B.add(0, 1.2, 1.9, 1.5, .5, .18, wall); // lintel above door
+    // door
+    B.add(0, .18, 1.95, .7, 1.05, .08, '#7a5230');
+    B.add(.22, .65, 2.02, .06, .1, .04, '#f2b632');
+    // windows
+    [[-1.6, -2.05], [1.6, -2.05], [-2.55, .2], [2.55, .2]].forEach(([x, z]) => {
+      B.add(x, .55, z, .7, .55, .08, trim);
+      B.add(x, .58, z + (z < 0 ? .05 : -.05), .58, .42, .04, glass);
+    });
+    // pitched roof
+    B.add(0, 1.75, -.15, 5.9, .16, 4.6, roof);
+    B.add(0, 2.05, -.15, 4.6, .16, 3.5, roofDk);
+    B.add(0, 2.35, -.15, 3.2, .14, 2.4, roof);
+    B.add(0, 2.58, -.15, 1.6, .12, 1.2, roofDk);
+    // chimney
+    B.add(1.6, 1.9, -1.2, .45, 1.1, .45, '#868e96');
+    B.add(1.6, 3.0, -1.2, .55, .1, .55, '#495057');
+    // front porch
+    B.add(0, .05, 2.55, 2.4, .1, .9, '#c9a066');
+    B.add(-1.0, .1, 2.9, .12, .7, .12, trim);
+    B.add(1.0, .1, 2.9, .12, .7, .12, trim);
+    B.add(0, .78, 2.9, 2.2, .08, .7, roof);
+    // path stones
+    [[0, 3.4], [-.35, 3.7], [.3, 3.9]].forEach(([x, z]) => B.add(x, 0, z, .35, .05, .28, '#adb5bd'));
+    return B;
+  }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost };
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, modelHomeCottage };
 })();

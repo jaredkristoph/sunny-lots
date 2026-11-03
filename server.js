@@ -37,12 +37,14 @@ function ensureNpcHouse() {
   const L = db.lands[idx];
   if (!L) return;
   L.owner = '__npc__';
-  if (L.npcReady) return;
+  const ver = C.NPC_HOME_VER || 1;
+  if (L.npcVer === ver && L.npcReady) return;
   L.tiles = {};
   for (const [k, id] of (C.NPC_HOME_FURN || [])) {
     if (C.FURN_BY[id]) L.tiles[k] = { type: 'furn', id };
   }
   L.npcReady = true;
+  L.npcVer = ver;
   L.stats = { harvested: 0, growTime: 0, value: 0 };
   dirty = true;
 }
