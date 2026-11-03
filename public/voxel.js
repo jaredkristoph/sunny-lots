@@ -404,47 +404,57 @@ const Vox = (() => {
     B.add(0, .72, .05, .48, .3, .02, '#fff8e1');
     return B;
   }
-  // Cohesive cottage shell for the Sunny Homes model lot (walls + roof + porch)
-  function modelHomeCottage() {
+  // Model home: base stays solid; shell (walls/roof) can fade when player is inside
+  function modelHomeBase() {
     const B = mk();
-    const wall = '#f3e2c4', trim = '#8a5a2b', roof = '#c92a2a', roofDk = '#a61e1e', glass = '#a8d8f0';
-    // raised floor / foundation
-    B.add(0, 0, -.15, 5.6, .12, 4.4, '#b08968');
-    B.add(0, .12, -.15, 5.4, .06, 4.2, '#e8d4a8');
-    // back wall
-    B.add(0, .18, -2.15, 5.4, 1.55, .18, wall);
-    // side walls
-    B.add(-2.6, .18, -.15, .18, 1.55, 4.2, wall);
-    B.add(2.6, .18, -.15, .18, 1.55, 4.2, wall);
-    // front wall with door gap
-    B.add(-1.7, .18, 1.9, 2.0, 1.55, .18, wall);
-    B.add(1.7, .18, 1.9, 2.0, 1.55, .18, wall);
-    B.add(0, 1.2, 1.9, 1.5, .5, .18, wall); // lintel above door
-    // door
-    B.add(0, .18, 1.95, .7, 1.05, .08, '#7a5230');
-    B.add(.22, .65, 2.02, .06, .1, .04, '#f2b632');
-    // windows
-    [[-1.6, -2.05], [1.6, -2.05], [-2.55, .2], [2.55, .2]].forEach(([x, z]) => {
-      B.add(x, .55, z, .7, .55, .08, trim);
-      B.add(x, .58, z + (z < 0 ? .05 : -.05), .58, .42, .04, glass);
-    });
-    // pitched roof
-    B.add(0, 1.75, -.15, 5.9, .16, 4.6, roof);
-    B.add(0, 2.05, -.15, 4.6, .16, 3.5, roofDk);
-    B.add(0, 2.35, -.15, 3.2, .14, 2.4, roof);
-    B.add(0, 2.58, -.15, 1.6, .12, 1.2, roofDk);
-    // chimney
-    B.add(1.6, 1.9, -1.2, .45, 1.1, .45, '#868e96');
-    B.add(1.6, 3.0, -1.2, .55, .1, .55, '#495057');
-    // front porch
-    B.add(0, .05, 2.55, 2.4, .1, .9, '#c9a066');
-    B.add(-1.0, .1, 2.9, .12, .7, .12, trim);
-    B.add(1.0, .1, 2.9, .12, .7, .12, trim);
-    B.add(0, .78, 2.9, 2.2, .08, .7, roof);
-    // path stones
-    [[0, 3.4], [-.35, 3.7], [.3, 3.9]].forEach(([x, z]) => B.add(x, 0, z, .35, .05, .28, '#adb5bd'));
+    const trim = '#8a5a2b';
+    B.add(0, 0, -.2, 5.8, .14, 4.6, '#9a7048');
+    B.add(0, .14, -.2, 5.5, .05, 4.3, '#e8d4a8');
+    // porch + path (always opaque)
+    B.add(0, .05, 2.55, 2.5, .1, 1.0, '#c9a066');
+    B.add(-1.05, .1, 2.95, .12, .75, .12, trim);
+    B.add(1.05, .1, 2.95, .12, .75, .12, trim);
+    B.add(0, .82, 2.95, 2.3, .08, .75, '#c92a2a');
+    [[0, 3.45], [-.35, 3.75], [.3, 3.95]].forEach(([x, z]) => B.add(x, 0, z, .35, .05, .28, '#adb5bd'));
     return B;
   }
+  function modelHomeShell(alpha) {
+    const B = mk();
+    const a = alpha == null ? 1 : alpha;
+    const wall = '#f6e7c8', trim = '#8a5a2b', roof = '#c92a2a', roofDk = '#9b1c1c', glass = '#9ec9e8';
+    // walls
+    B.add(0, .2, -2.25, 5.5, 1.6, .22, wall, a);           // back
+    B.add(-2.65, .2, -.2, .22, 1.6, 4.3, wall, a);          // left
+    B.add(2.65, .2, -.2, .22, 1.6, 4.3, wall, a);           // right
+    B.add(-1.75, .2, 1.95, 2.0, 1.6, .22, wall, a);         // front L
+    B.add(1.75, .2, 1.95, 2.0, 1.6, .22, wall, a);          // front R
+    B.add(0, 1.25, 1.95, 1.55, .55, .22, wall, a);          // door lintel
+    // door + windows
+    B.add(0, .2, 2.0, .72, 1.08, .1, '#6b4423', a);
+    B.add(.24, .7, 2.08, .07, .1, .04, '#f2b632', a);
+    [[-1.55, -2.15], [1.55, -2.15], [-2.6, .15], [2.6, .15]].forEach(([x, z]) => {
+      B.add(x, .6, z, .72, .58, .1, trim, a);
+      B.add(x, .63, z + (z < 0 ? .06 : -.06), .58, .45, .04, glass, Math.min(1, a + .15));
+    });
+    // pitched roof along X (ridge on top) — reads as a house from outside
+    for (let i = 0; i < 6; i++) {
+      const t = i / 5;
+      const w = 5.9 - i * 0.85;
+      const h = 1.72 + i * 0.2;
+      const d = 4.7 - i * 0.55;
+      B.add(0, h, -.2, w, .14, d, i % 2 ? roofDk : roof, a);
+    }
+    // gable peaks (front/back triangles suggested by vertical fill)
+    B.add(0, 1.85, -2.35, .15, 1.1, .12, wall, a);
+    B.add(0, 1.85, 2.05, .15, .9, .12, wall, a);
+    // chimney
+    B.add(1.7, 2.2, -1.15, .42, 1.15, .42, '#868e96', a);
+    B.add(1.7, 3.3, -1.15, .52, .1, .52, '#495057', a);
+    return B;
+  }
+  function modelHomeCottage(alpha) {
+    return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
+  }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, modelHomeCottage };
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

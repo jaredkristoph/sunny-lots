@@ -435,11 +435,20 @@
     }
     WD.lands.forEach((o, i) => {
       if (o.npc) {
-        piece(Vox.modelHomeCottage(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
+        // solid base/porch always; walls+roof drawn each frame (fade when inside)
+        piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
         piece(Vox.landPost(), o.x + .35, o.y + LS - .4, 1.0);
       } else piece(Vox.landPost(), o.x + .35, o.y + .35, 1.0);
     });
   })();
+  const npcLot = WD.lands.find(o => o.npc) || null;
+  const npcShellSolid = Vox.modelHomeShell(1);
+  const npcShellGhost = Vox.modelHomeShell(0.2);
+  function insideNpcHome() {
+    if (!npcLot || !me) return false;
+    const tx = self.x / TILE, tz = self.y / TILE;
+    return tx >= npcLot.x + 0.4 && tx < npcLot.x + LS - 0.4 && tz >= npcLot.y + 0.4 && tz < npcLot.y + LS - 0.8;
+  }
 
   // ---------- picking ----------
   function plantH(tile) { return [.25, .35, .7, 1][Vox.plantStage((now() - tile.at) / growMs(cat.SEED_BY[tile.seed]))]; }
@@ -946,6 +955,11 @@
 
     // objects
     for (const p of statics) view.add(p.B, p.x, 0, p.z, 0, p.r);
+    // model home walls/roof: solid outside, transparent inside so furniture shows
+    if (npcLot) {
+      const shell = insideNpcHome() ? npcShellGhost : npcShellSolid;
+      view.add(shell, npcLot.x + LS / 2, 0, npcLot.y + LS / 2 - .4, 0, 1.15);
+    }
     lands.forEach((L, i) => {
       const o = WD.lands[i];
       for (const k in L.tiles) {
@@ -1018,7 +1032,7 @@
       else if (hoverTile.i != null && lands[hoverTile.i]) {
         const L = lands[hoverTile.i];
         const meta = WD.lands[hoverTile.i] || {};
-        hint = (meta.npc || L.npc) ? 'Model home showcase'
+        hint = (meta.npc || L.npc) ? (insideNpcHome() ? 'Inside model home — walls faded' : 'Model home — walk in to see inside')
           : L.owner === myName
             ? (meta.house ? 'Click: plant or decorate house (not expandable)' : 'Click: plant, decorate, harvest · edge expands farm')
             : L.owner ? 'Click plants, decor, or the land post'
