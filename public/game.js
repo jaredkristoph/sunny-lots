@@ -694,8 +694,14 @@
     if (!started) return;
     if (e.key === 'Enter') {
       const ci = $('#chatinput');
-      if (document.activeElement === ci) { const t = ci.value.trim(); if (t) send({ t: 'chat', text: t }); ci.value = ''; ci.blur(); }
-      else if (!modalOpen()) { ci.focus(); e.preventDefault(); }
+      if (document.activeElement === ci) {
+        e.preventDefault();
+        const t = ci.value.trim();
+        if (t) send({ t: 'chat', text: t });
+        ci.value = '';
+        // stay focused so you can keep chatting without pressing Enter again
+        requestAnimationFrame(() => ci.focus());
+      } else if (!modalOpen()) { ci.focus(); e.preventDefault(); }
       return;
     }
     if (typing()) { if (e.key === 'Escape') document.activeElement.blur(); return; }
