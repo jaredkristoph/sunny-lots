@@ -62,6 +62,17 @@ const SHAPES = [
   ['fountain', ['Stone Fountain', 'Rose Fountain', 'Lagoon Fountain', 'Palace Fountain'], 500],
   ['statue', ['Stone Statue', 'Ruby Statue', 'Marble Statue', 'Golden Statue'], 600],
   ['piano', ['Upright Piano', 'Cherry Piano', 'Midnight Piano', 'Grand Piano'], 800],
+  // house-building pieces
+  ['door', ['Pine Door', 'Cherry Door', 'Sky Door', 'Manor Door'], 180],
+  ['gate', ['Garden Gate', 'Rose Gate', 'Harbor Gate', 'Iron Gate'], 220],
+  ['wall', ['Plaster Wall', 'Brick Wall', 'Blue Wall', 'Marble Wall'], 120],
+  ['window', ['Oak Window', 'Rose Window', 'Frost Window', 'Stained Window'], 160],
+  ['roof', ['Shingle Roof', 'Red Roof', 'Slate Roof', 'Gold Roof'], 200],
+  ['hedge', ['Box Hedge', 'Rose Hedge', 'Topiary Hedge', 'Royal Hedge'], 90],
+  ['counter', ['Kitchen Counter', 'Cherry Counter', 'Tile Counter', 'Marble Counter'], 210],
+  ['sink', ['Basin Sink', 'Rose Sink', 'Chrome Sink', 'Gold Sink'], 190],
+  ['stove', ['Cook Stove', 'Red Stove', 'Steel Stove', 'Chef Stove'], 280],
+  ['toilet', ['Basic Toilet', 'Rose Toilet', 'Sea Toilet', 'Royal Toilet'], 240],
 ];
 const PALS = [
   ['#c8934f', '#e8c590', '#7a5228'],
@@ -144,51 +155,71 @@ const DEFAULT_AVATAR = {
 };
 
 // ---- World layout (in tiles).
-// IMPORTANT: original 8 lands keep EXACT coords so existing saves/crops stay valid.
-// Map grows RIGHT and DOWN only; new POIs + expansion plots live in the new strip.
+// Tile data is stored relative to each land origin — moving a land's world x/y
+// does not wipe crops. Never reorder / remove land indices 0–7.
 const LAND_SIZE = 8;
-const EXPAND_COST = 800; // buy a separate expansion plot (lands 8+)
+const LAND_GAP = 5; // empty tiles between neighboring starter plots
+const LAND_STRIDE = LAND_SIZE + LAND_GAP; // 13
+const EXPAND_COST = 5000; // separate expansion farm plots
+const HOUSE_COST = 2000;  // dedicated house-building lots
 const SQUARE_COST = 140; // buy one extra tile around your starter land
 const SQUARE_MAX = 20;   // max bought squares per starter land
+const TAP_MIN = 0.1;     // plant-care tap earnings while growing
+const TAP_MAX = 0.5;
 const WORLD = {
   tile: 48,
   landSize: LAND_SIZE,
-  landCount: 12, // 8 original + 4 expansion plots (never move indices 0-7)
-  width: 62,
-  height: 40,
+  // 8 farm + 4 expansion + 8 house lots (indices 0–7 forever farm starters)
+  landCount: 20,
+  width: 72,
+  height: 58,
   lands: [],
-  shop: { x: 18, y: 11, w: 6, h: 3 },
-  shopDoor: { x: 21, y: 14.6 },
-  // side stalls — each runs one of the five mini-games
+  // shop sits in the 5-tile crossroads between the 8 farm plots
+  shop: { x: 23, y: 10, w: 5, h: 4 },
+  shopDoor: { x: 25.5, y: 14.2 },
   stalls: [
     { id: 'lemonade', name: 'Lemonade Stand', x: 0.5, y: 8, game: 'typing', pay: [12, 20], cd: 45 },
     { id: 'flowers', name: 'Flower Cart', x: 0.5, y: 12, game: 'simon', pay: [12, 22], cd: 50 },
     { id: 'craft', name: 'Egg Catch Hut', x: 0.5, y: 16, game: 'eggs', pay: [14, 24], cd: 50 },
     { id: 'bakery', name: 'Invader Arcade', x: 0.5, y: 20, game: 'invader', pay: [15, 26], cd: 55 },
-    { id: 'arcade', name: 'Race Booth', x: 40.5, y: 12, game: 'race', pay: [15, 26], cd: 55 },
+    { id: 'arcade', name: 'Race Booth', x: 49.5, y: 12, game: 'race', pay: [15, 26], cd: 55 },
   ],
-  petShop: { x: 14, y: 30, w: 4, h: 3 },
+  petShop: { x: 12, y: 24, w: 4, h: 3 },
   pens: {
-    chicken: { x: 1, y: 28, w: 4, h: 4 },
-    cow: { x: 1, y: 33, w: 4, h: 4 },
-    sheep: { x: 6, y: 33, w: 4, h: 4 },
+    chicken: { x: 1, y: 24, w: 4, h: 2 },
+    cow: { x: 1, y: 26, w: 4, h: 2 },
+    sheep: { x: 6, y: 26, w: 4, h: 2 },
   },
-  // mini park with slides (bottom-center, clear of original lands)
-  park: { x: 22, y: 28, w: 10, h: 7 },
+  park: { x: 22, y: 24, w: 10, h: 5 },
   bushes: [
-    { id: 'b1', x: 34, y: 30 }, { id: 'b2', x: 38, y: 33 }, { id: 'b3', x: 42, y: 30 },
-    { id: 'b4', x: 46, y: 34 }, { id: 'b5', x: 20, y: 36 }, { id: 'b6', x: 28, y: 37 },
-    { id: 'b7', x: 12, y: 37 }, { id: 'b8', x: 50, y: 28 },
+    { id: 'b1', x: 36, y: 25 }, { id: 'b2', x: 40, y: 27 }, { id: 'b3', x: 48, y: 26 },
+    { id: 'b4', x: 54, y: 8 }, { id: 'b5', x: 54, y: 20 }, { id: 'b6', x: 18, y: 37 },
+    { id: 'b7', x: 32, y: 37 }, { id: 'b8', x: 46, y: 37 },
   ],
 };
-for (let i = 0; i < 8; i++) WORLD.lands.push({ x: 2 + (i % 4) * 10, y: 2 + Math.floor(i / 4) * 14, expand: false });
-// expansion lots — well separated (12+ tile gaps), never overlap each other or starters
+// Farm starters (0–7): 5 empty tiles between each 8×8 plot
+for (let i = 0; i < 8; i++) {
+  WORLD.lands.push({
+    x: 2 + (i % 4) * LAND_STRIDE,
+    y: 2 + Math.floor(i / 4) * LAND_STRIDE,
+    expand: false,
+  });
+}
+// Expansion farm lots (8–11) — far east, expensive
 WORLD.lands.push(
-  { x: 50, y: 2, expand: true },
-  { x: 50, y: 16, expand: true },
-  { x: 50, y: 30, expand: true },
-  { x: 42, y: 22, expand: true },
+  { x: 60, y: 2, expand: true },
+  { x: 60, y: 16, expand: true },
+  { x: 60, y: 30, expand: true },
+  { x: 60, y: 44, expand: true },
 );
+// House-building lots (12–19) — south of the farm grid
+for (let i = 0; i < 8; i++) {
+  WORLD.lands.push({
+    x: 2 + (i % 4) * LAND_STRIDE,
+    y: 32 + Math.floor(i / 4) * LAND_STRIDE,
+    house: true,
+  });
+}
 
 // Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
 const RARE_FURN = [
@@ -237,7 +268,8 @@ const MINIGAMES = {
 
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
-  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, SQUARE_COST, SQUARE_MAX,
+  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_MAX,
+  TAP_MIN, TAP_MAX,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),

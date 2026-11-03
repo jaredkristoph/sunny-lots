@@ -10,7 +10,10 @@
   cat.FURN_BY = Object.fromEntries(cat.FURNITURE.map(s => [s.id, s]));
   cat.CLOTH = Object.fromEntries(cat.CLOTHES.map(s => [s.id, s]));
   const WD = cat.WORLD, TILE = WD.tile, LS = WD.landSize;           // TILE = server px per tile
-  const money = n => '$' + Number(n).toLocaleString();
+  const money = n => {
+    const x = Math.round(Number(n) * 100) / 100;
+    return '$' + x.toLocaleString(undefined, { minimumFractionDigits: x % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  };
   const PI = Math.PI;
   const fpsiFor = yaw => Math.floor((yaw + PI) / (PI / 2) + .5) * PI / 2;   // furniture always faces the camera (snapped to 90°)
   const nearPt = (x, y, tx, ty, r) => Math.hypot(x / TILE - tx, y / TILE - ty) < (r || 2.2);
@@ -129,6 +132,11 @@
         toast(m.gold ? '✨ Golden ' + sd.name + '! Worth triple!' : 'Harvested ' + sd.name);
         break;
       }
+      case 'tap_earn': {
+        const el = document.getElementById('tap-earn');
+        if (el) { el.textContent = '+' + money(m.amount); el.style.opacity = '1'; clearTimeout(el._t); el._t = setTimeout(() => { el.style.opacity = '0'; }, 500); }
+        break;
+      }
     }
   }
   function addChat(m) {
@@ -235,7 +243,7 @@
           '×' + n, h('button', { class: 'btn sm green', onclick: () => send({ t: 'sell', kind: 'product', id, qty: 'all' }) }, 'Sell'));
       }).filter(Boolean));
       if ((me.pets || []).length) sec('Pets', me.pets.map(id => { const p = (cat.PETS || []).find(x => x.id === id); return h('div', { class: 'lrow' }, h('b', {}, p ? p.name : id)); }));
-      b.append(h('div', { class: 'muted' }, 'Sell crops/products at the shop. Side stalls = mini-games. Bushes can drop exclusive decor (~5%).'));
+      b.append(h('div', { class: 'muted' }, 'Shop sells house pieces (doors, gates, walls, TVs…). Stalls = mini-games. Bushes ~5% rare loot.'));
       return b;
     });
   }
@@ -467,17 +475,25 @@
     if (hit.buySquare) return tryBuySquare(hit.wx, hit.wy);
     const L = lands[hit.i];
     if (!L.owner) {
-      const expand = !!(WD.lands[hit.i] && WD.lands[hit.i].expand);
-      if (expand) {
-        if (me.land == null) return toast('Claim a starter land first (plots 1–8).', true);
+      const meta = WD.lands[hit.i] || {};
+      if (meta.expand) {
+        if (me.land == null) return toast('Claim a starter farm first (plots 1–8).', true);
         if (me.expandLand != null) return toast('You already own an expansion plot.', true);
-        return openModal('Buy expansion plot?', () => h('div', { class: 'center' },
+        return openModal('Buy expansion farm?', () => h('div', { class: 'center' },
           h('div', {}, 'Separate expansion lot — does not touch or change anyone\'s existing crops.'),
-          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 800) + ' · one expansion lot per player'),
-          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy expansion · ' + money(cat.EXPAND_COST || 800))));
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 5000) + ' · one expansion lot per player'),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy expansion · ' + money(cat.EXPAND_COST || 5000))));
       }
-      if (me.land != null) return toast('You already own a starter land. Buy a separate expansion lot on the right, or expand your land one square at a time.', true);
-      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This land is free. You can own one starter land, and only you can plant or decorate on it. Later you can expand it square-by-square.'),
+      if (meta.house) {
+        if (me.land == null) return toast('Claim a farm land first.', true);
+        if (me.houseLand != null) return toast('You already own a house lot.', true);
+        return openModal('Buy house lot?', () => h('div', { class: 'center' },
+          h('div', {}, 'Build and decorate a house here — doors, gates, walls, windows, TVs, kitchens & more from the shop.'),
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.HOUSE_COST || 2000) + ' · one house lot per player'),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy house lot · ' + money(cat.HOUSE_COST || 2000))));
+      }
+      if (me.land != null) return toast('You already own a farm. Buy a house lot (south) or a pricey expansion (east), or expand your farm one square at a time.', true);
+      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This farm is free. You can own one starter farm, then add a house lot and expand later.'),
         h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Claim this land')));
     }
     if (L.owner !== myName) {
@@ -523,18 +539,30 @@
     }
     const sd = cat.SEED_BY[tile.seed], total = growMs(sd);
     if (now() >= tile.at + total) { send({ t: 'harvest', land, tx, ty }); return; }
+    let lastTap = 0;
     openModal(sd.name + ' is growing', () => {
       const bar = h('div', { style: 'width:100%;height:100%' });
       const left = h('div', { style: 'font-size:22px;font-weight:700' });
+      const earn = h('div', { id: 'tap-earn', style: 'font-size:28px;font-weight:900;color:#2f9e44;min-height:34px;opacity:0;transition:opacity .2s' }, '');
+      const plantBtn = h('button', {
+        class: 'btn green', style: 'width:100%;padding:16px;font-size:18px',
+        onclick: () => {
+          const tnow = performance.now();
+          if (tnow - lastTap < 450) return;
+          lastTap = tnow;
+          send({ t: 'tap_grow', land, tx, ty });
+        },
+      }, 'Tap to care · earn ' + money(cat.TAP_MIN || 0.1) + '–' + money(cat.TAP_MAX || 0.5));
       const upd = () => { const p = Math.min(1, (now() - tile.at) / total); bar.style.width = (p * 100) + '%'; left.textContent = fmtLeft(tile.at + total - now()) + ' left'; if (p >= 1) { closeModal(); toast(sd.name + ' is ready! Click it to harvest.'); } };
       upd(); const iv = setInterval(upd, 500); modalClose = () => clearInterval(iv);
-      return h('div', { class: 'center' }, plantIcon(sd, false), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'Keeps growing even when you log out or the server restarts.'));
+      return h('div', { class: 'center' }, plantIcon(sd, false), left, h('div', { class: 'bar', style: 'width:100%' }, bar), earn, plantBtn, h('div', { class: 'muted' }, 'Keeps growing even when you log out or the server restarts.'));
     });
   }
   function plantMenu(land, tx, ty) {
-    let tab = 'seeds';
-    openModal('What do you want here?', () => {
-      const b = h('div', {}, tabs([['seeds', '🌱 Plant a seed'], ['furn', '🪑 Place furniture']], tab, t => { tab = t; }));
+    const isHouse = !!(WD.lands[land] && WD.lands[land].house);
+    let tab = isHouse ? 'furn' : 'seeds';
+    openModal(isHouse ? 'Decorate your house' : 'What do you want here?', () => {
+      const b = h('div', {}, tabs([['seeds', '🌱 Plant a seed'], ['furn', isHouse ? '🏠 House decor' : '🪑 Place furniture']], tab, t => { tab = t; }));
       if (tab === 'seeds') {
         const ent = cat.SEEDS.filter(s => me.seeds[s.id] > 0);
         if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no seeds. Buy some at the shop 🏪 (the building in the middle).')); return b; }
@@ -544,7 +572,7 @@
         b.append(list);
       } else {
         const ent = cat.FURNITURE.filter(f => me.furniture[f.id] > 0);
-        if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no furniture. Buy some at the shop 🏪 or forage bushes.')); return b; }
+        if (!ent.length) { b.append(h('div', { class: 'muted' }, 'No decor yet. Buy doors, gates, walls, TVs & more at the shop 🏪.')); return b; }
         const g = h('div', { class: 'grid' });
         ent.forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, '×' + me.furniture[f.id]), h('button', { class: 'btn sm green', onclick: () => { send({ t: 'place', land, tx, ty, furn: f.id }); closeModal(); } }, 'Place'))));
         b.append(g);
@@ -790,10 +818,14 @@
       const L = lands[i], mid = [[o.x + 4, o.y], [o.x + 4, o.y + LS], [o.x, o.y + 4], [o.x + LS, o.y + 4]];
       let far = null; for (const [mx, mz] of mid) { const s = toPage(mx, 0, mz); if (!far || s[2] > far[2]) far = s; }
       if (far[0] < -100 || far[0] > vw + 100 || far[1] < -50 || far[1] > vh + 50) return;
-      const expand = WD.lands[i] && WD.lands[i].expand;
-      const label = L.owner ? L.owner + "'s land" : (expand ? 'Expansion · $' + (cat.EXPAND_COST || 800) : 'Land ' + (i + 1) + ' — FOR CLAIM');
+      const meta = WD.lands[i] || {};
+      const label = L.owner
+        ? (L.owner + (meta.house ? "'s house" : "'s land"))
+        : (meta.expand ? 'Expansion · ' + money(cat.EXPAND_COST || 5000)
+          : meta.house ? 'House lot · ' + money(cat.HOUSE_COST || 2000)
+            : 'Land ' + (i + 1) + ' — FOR CLAIM');
       lctx.font = 'bold 13px Trebuchet MS'; const w = lctx.measureText(label).width + 18;
-      lctx.fillStyle = L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : (expand ? '#d0ebff' : '#ffd1c9'); lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
+      lctx.fillStyle = L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : (meta.expand ? '#d0ebff' : meta.house ? '#ffe0c7' : '#ffd1c9'); lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
       lctx.beginPath(); lctx.roundRect(far[0] - w / 2, far[1] - 30, w, 20, 6); lctx.fill(); lctx.stroke();
       lctx.fillStyle = '#3b2a1a'; lctx.textAlign = 'center'; lctx.fillText(label, far[0], far[1] - 16); lctx.textAlign = 'left';
     });
@@ -820,7 +852,11 @@
       else if (hoverTile.buySquare) hint = 'Click: buy this square for ' + money(cat.SQUARE_COST || 140);
       else if (hoverTile.i != null && lands[hoverTile.i]) {
         const L = lands[hoverTile.i];
-        hint = L.owner === myName ? 'Click: plant, decorate, or harvest · edge tiles expand land' : L.owner ? 'Click plants or the land post' : (WD.lands[hoverTile.i].expand ? 'Separate paid expansion lot' : 'Unclaimed land');
+        const meta = WD.lands[hoverTile.i] || {};
+        hint = L.owner === myName
+          ? (meta.house ? 'Click: place doors, gates, TVs & house decor' : 'Click: plant, decorate, or harvest · edge tiles expand land')
+          : L.owner ? 'Click plants or the land post'
+            : (meta.expand ? 'Pricey expansion farm' : meta.house ? 'House-building lot' : 'Unclaimed farm');
       }
     }
     $('#hint').textContent = hint; $('#hint').style.display = modalOpen() ? 'none' : '';

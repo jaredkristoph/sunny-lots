@@ -64,11 +64,14 @@ function ensureUser(u) {
   if (!u.stallAt) u.stallAt = {};
   if (!u.animalAt) u.animalAt = { egg: 0, milkCow: 0, milkSheep: 0 };
   if (u.expandLand === undefined) u.expandLand = null;
+  if (u.houseLand === undefined) u.houseLand = null;
   if (!u.seeds) u.seeds = {};
   if (!u.crops) u.crops = {};
   if (!u.furniture) u.furniture = {};
   if (!u.clothes) u.clothes = [];
+  if (!u.tapAt) u.tapAt = 0;
 }
+const roundMoney = v => Math.round(Number(v) * 100) / 100;
 for (const u of Object.values(db.users)) ensureUser(u);
 let dirty = true;
 const touch = () => { dirty = true; };
@@ -145,7 +148,8 @@ app.get('/api/catalog', (req, res) => {
     SEEDS: C.SEEDS, FURNITURE: C.FURNITURE.filter(f => f.buyable !== false), CLOTHES: C.CLOTHES.filter(c => c.buyable !== false),
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
-    GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, SQUARE_COST: C.SQUARE_COST, SQUARE_MAX: C.SQUARE_MAX,
+    GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, HOUSE_COST: C.HOUSE_COST,
+    SQUARE_COST: C.SQUARE_COST, SQUARE_MAX: C.SQUARE_MAX, TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
     ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
   });
@@ -191,11 +195,11 @@ const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); }
 const broadcast = o => { const s = JSON.stringify(o); for (const c of online.values()) if (c.ws.readyState === 1) c.ws.send(s); };
 const meView = u => ({
   name: u.name, money: u.money, seeds: u.seeds, crops: u.crops, furniture: u.furniture,
-  clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, charDone: u.charDone,
+  clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
   stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt,
 });
-const ownsLand = (u, i) => u.land === i || u.expandLand === i;
+const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
 const playerList = () => [...online.values()].map(c => ({ n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar }));
 const landView = l => ({
@@ -290,18 +294,42 @@ wss.on('connection', ws => {
           if (u.land == null) return err('Claim a starter land first (the original 8 plots).');
           if (u.expandLand != null) return err('You already own an expansion plot.');
           if (u.money < C.EXPAND_COST) return err('Need $' + C.EXPAND_COST + ' to expand.');
-          u.money -= C.EXPAND_COST;
+          u.money = roundMoney(u.money - C.EXPAND_COST);
           db.lands[i].owner = c.key; u.expandLand = i; touch();
           broadcast({ t: 'owner', land: i, owner: u.name });
           sendMe(c);
           ok('Expansion plot ' + (i + 1) + ' unlocked!');
+        } else if (meta.house) {
+          if (u.land == null) return err('Claim a farm land first.');
+          if (u.houseLand != null) return err('You already own a house lot.');
+          if (u.money < C.HOUSE_COST) return err('Need $' + C.HOUSE_COST + ' for a house lot.');
+          u.money = roundMoney(u.money - C.HOUSE_COST);
+          db.lands[i].owner = c.key; u.houseLand = i; touch();
+          broadcast({ t: 'owner', land: i, owner: u.name });
+          sendMe(c);
+          ok('House lot ' + (i + 1) + ' is yours — decorate with doors, gates, TVs & more!');
         } else {
-          if (u.land != null) return err('You already own a starter land. Buy an expansion plot on the right for $' + C.EXPAND_COST + '.');
+          if (u.land != null) return err('You already own a starter farm. Buy a house lot south, or an expansion on the right.');
           db.lands[i].owner = c.key; u.land = i; touch();
           broadcast({ t: 'owner', land: i, owner: u.name });
           sendMe(c);
           ok('Land ' + (i + 1) + ' is yours!');
         }
+        break;
+      }
+      case 'tap_grow': {
+        // Tap a growing plant for a tiny tip ($0.10–$0.50)
+        if (!actLand || !tileOK || !ownsLand(u, landIdx)) return;
+        const k = m.tx + ',' + m.ty, tile = actLand.tiles[k];
+        if (!tile || tile.type !== 'plant') return;
+        const seed = C.SEED_BY[tile.seed]; if (!seed) return;
+        if (Date.now() >= tile.at + growMs(seed)) return err('Ready to harvest — click the plant!');
+        if (Date.now() - (u.tapAt || 0) < 450) return;
+        u.tapAt = Date.now();
+        const tip = roundMoney(C.TAP_MIN + Math.random() * (C.TAP_MAX - C.TAP_MIN));
+        u.money = roundMoney(u.money + tip);
+        touch(); sendMe(c);
+        send(ws, { t: 'tap_earn', amount: tip });
         break;
       }
       case 'plant': {
@@ -339,7 +367,7 @@ wss.on('connection', ws => {
         if (u.land == null) return err('Claim a starter land first.');
         const li = u.land;
         const meta = C.WORLD.lands[li];
-        if (!meta || meta.expand) return err('Only starter lands expand per square.');
+        if (!meta || meta.expand || meta.house) return err('Only starter farms expand per square.');
         const L = db.lands[li];
         const extras = Object.keys(L.extra || {});
         if (extras.length >= C.SQUARE_MAX) return err('Max ' + C.SQUARE_MAX + ' extra squares on this land.');
