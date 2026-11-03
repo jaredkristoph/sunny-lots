@@ -99,6 +99,7 @@
         $('#chatlog').innerHTML = ''; m.chat.forEach(addChat);
         $('#hud').hidden = false; $('#chat').hidden = false; $('#auth-root') && $('#auth-root').remove();
         closeModal(); updateHud(); started = true;
+        rebuildLandGrid();
         if (!me.charDone) openCreator();
         break;
       case 'me': me = m.me; updateHud(); if (modalRefresh) modalRefresh(); break;
@@ -113,6 +114,12 @@
         if (modalRefresh && !m.tile) modalRefresh();
         break;
       case 'owner': lands[m.land].owner = m.owner; break;
+      case 'land_extra':
+        if (lands[m.land]) { lands[m.land].extra = m.extra || {}; rebuildLandGrid(); }
+        break;
+      case 'land_stats':
+        if (lands[m.land]) lands[m.land].stats = m.stats || lands[m.land].stats;
+        break;
       case 'chat': addChat(m); if (m.n === myName) self.say = { text: m.text, until: Date.now() + 6000 }; else if (players[m.n]) players[m.n].say = { text: m.text, until: Date.now() + 6000 }; break;
       case 'sys': addChat({ sys: true, text: m.text }); break;
       case 'err': toast(m.msg, true); break;
@@ -297,14 +304,44 @@
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
   const toPage = (X, Y, Z) => { const s = view.toScreen(X, Y, Z); return [s[0] * scaleX(), s[1] * scaleY(), s[2]]; };
 
-  // land lookup (tile coordinates)
+  // land lookup (tile coordinates) — includes bought extra squares
+  let landGrid = Array.from({ length: WD.height }, () => new Array(WD.width).fill(-1));
+  function rebuildLandGrid() {
+    landGrid = Array.from({ length: WD.height }, () => new Array(WD.width).fill(-1));
+    WD.lands.forEach((o, i) => {
+      for (let y = 0; y < LS; y++) for (let x = 0; x < LS; x++) {
+        if (o.y + y < WD.height && o.x + x < WD.width) landGrid[o.y + y][o.x + x] = i;
+      }
+      const L = lands[i];
+      if (!L || !L.extra) return;
+      for (const k of Object.keys(L.extra)) {
+        const [rx, ry] = k.split(',').map(Number);
+        const wx = o.x + rx, wy = o.y + ry;
+        if (wy >= 0 && wy < WD.height && wx >= 0 && wx < WD.width) landGrid[wy][wx] = i;
+      }
+    });
+  }
+  rebuildLandGrid();
   function landAt(tx, tz) {
     tx = Math.floor(tx); tz = Math.floor(tz);
-    for (let i = 0; i < WD.lands.length; i++) { const o = WD.lands[i]; if (tx >= o.x && tx < o.x + LS && tz >= o.y && tz < o.y + LS) return { i, lx: tx - o.x, ly: tz - o.y }; }
-    return null;
+    if (tz < 0 || tz >= WD.height || tx < 0 || tx >= WD.width) return null;
+    const i = landGrid[tz][tx];
+    if (i < 0) return null;
+    const o = WD.lands[i];
+    return { i, lx: tx - o.x, ly: tz - o.y };
   }
-  const landGrid = Array.from({ length: WD.height }, () => new Array(WD.width).fill(-1));
-  WD.lands.forEach((o, i) => { for (let y = 0; y < LS; y++) for (let x = 0; x < LS; x++) landGrid[o.y + y][o.x + x] = i; });
+  function isAdjToMyLand(wx, wy) {
+    if (me == null || me.land == null) return false;
+    const li = me.land;
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+      const nx = wx + dx, ny = wy + dy;
+      return ny >= 0 && ny < WD.height && nx >= 0 && nx < WD.width && landGrid[ny][nx] === li;
+    });
+  }
+  function inPark(tx, ty) {
+    const P = WD.park; if (!P) return false;
+    return tx >= P.x && tx < P.x + P.w && ty >= P.y && ty < P.y + P.h;
+  }
   const isMargin = (tx, ty) => tx < 2 || ty < 2 || tx >= WD.width - 2 || ty >= WD.height - 2;
   const blocked = (x, y) => x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2;
 
@@ -360,6 +397,20 @@
       piece(Vox.shopBox(P.w - .2, 1.4, P.h - .2, '#7048a8'), P.x + P.w / 2, P.y + P.h / 2, 2);
     }
     for (const b of (WD.bushes || [])) piece(Vox.bushBoxes(), b.x, b.y, .9);
+    if (WD.park) {
+      const P = WD.park;
+      // soft park border posts
+      for (let i = 0; i < P.w; i++) {
+        if (i % 2 === 0) { const B = Vox.mk(); B.add(0, 0, 0, .08, .35, .08, '#868e96'); piece(B, P.x + i + .5, P.y + .2, .6); piece(B, P.x + i + .5, P.y + P.h - .2, .6); }
+      }
+      piece(Vox.slideBoxes(), P.x + 2.5, P.y + 3.2, 1.4);
+      piece(Vox.slideBoxes(), P.x + 7.2, P.y + 3.5, 1.4);
+      piece(Vox.parkBench(), P.x + 4.5, P.y + 1.5, 1.1);
+      piece(Vox.parkBench(), P.x + 5.5, P.y + 5.5, 1.1);
+      const tree = Vox.mk(); tree.add(0, 0, 0, .18, .55, .18, '#7a5230').add(0, .5, 0, .7, .4, .7, '#2f9e44').add(0, .85, 0, .5, .35, .5, '#40c057');
+      piece(tree, P.x + 1.2, P.y + 1.5, 1.2); piece(tree, P.x + 8.5, P.y + 5.2, 1.2);
+    }
+    WD.lands.forEach((o, i) => piece(Vox.landPost(), o.x + .35, o.y + .35, 1.0));
   })();
 
   // ---------- picking ----------
@@ -368,11 +419,17 @@
     // shop (tall building): test a few heights
     for (const Y of [.3, 1, 1.6]) { const g = view.pick(bx, by, Y); if (g.x > WD.shop.x - .05 && g.x < WD.shop.x + WD.shop.w + .05 && g.z > WD.shop.y - .05 && g.z < WD.shop.y + WD.shop.h + .05) return { shop: true }; }
     const g0 = view.pick(bx, by, 0);
-    // POIs (stalls / pens / pet shop / bushes)
+    // land posts (NW corner of each plot)
+    for (let i = 0; i < WD.lands.length; i++) {
+      const o = WD.lands[i];
+      if (Math.hypot(g0.x - (o.x + .35), g0.z - (o.y + .35)) < .7) return { post: i };
+    }
+    // POIs (stalls / pens / pet shop / bushes / park)
     for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
     if (WD.petShop && g0.x > WD.petShop.x && g0.x < WD.petShop.x + WD.petShop.w && g0.z > WD.petShop.y && g0.z < WD.petShop.y + WD.petShop.h) return { petShop: true };
     for (const [id, p] of Object.entries(WD.pens || {})) if (g0.x > p.x && g0.x < p.x + p.w && g0.z > p.y && g0.z < p.y + p.h) return { pen: id };
     for (const b of (WD.bushes || [])) if (Math.hypot(g0.x - b.x, g0.z - b.y) < 1.1) return { bush: b };
+    if (WD.park && inPark(g0.x, g0.z)) return { park: true };
     let best = null;
     for (let i = 0; i < lands.length; i++) {
       const o = WD.lands[i], L = lands[i];
@@ -385,17 +442,29 @@
       }
     }
     if (best) return best;
-    const g = view.pick(bx, by, 0); return landAt(g.x, g.z);
+    const g = view.pick(bx, by, 0);
+    const la = landAt(g.x, g.z);
+    if (la) return la;
+    // buy adjacent square for starter land expand
+    const wx = Math.floor(g.x), wy = Math.floor(g.z);
+    if (me && me.land != null && !(WD.lands[me.land] && WD.lands[me.land].expand)
+        && landGrid[wy] && landGrid[wy][wx] < 0 && !inPark(wx, wy) && isAdjToMyLand(wx, wy)) {
+      return { buySquare: true, wx, wy };
+    }
+    return null;
   }
   function clickScreen(cx, cy) {
     if (!me || modalOpen()) return;
     const [bx, by] = toBuf(cx, cy), hit = pickAt(bx, by);
     if (!hit) return;
     if (hit.shop) return tryShop();
+    if (hit.post != null) return openLandPost(hit.post);
     if (hit.stall) return openStall(hit.stall);
     if (hit.petShop) return openPetShop();
     if (hit.pen) return openPen(hit.pen);
     if (hit.bush) return forageBush(hit.bush);
+    if (hit.park) return openPark();
+    if (hit.buySquare) return tryBuySquare(hit.wx, hit.wy);
     const L = lands[hit.i];
     if (!L.owner) {
       const expand = !!(WD.lands[hit.i] && WD.lands[hit.i].expand);
@@ -403,12 +472,12 @@
         if (me.land == null) return toast('Claim a starter land first (plots 1–8).', true);
         if (me.expandLand != null) return toast('You already own an expansion plot.', true);
         return openModal('Buy expansion plot?', () => h('div', { class: 'center' },
-          h('div', {}, 'Extra land on the east strip. Does not move or change anyone\'s existing crops.'),
-          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 800)),
-          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Expand for ' + money(cat.EXPAND_COST || 800))));
+          h('div', {}, 'Separate expansion lot — does not touch or change anyone\'s existing crops.'),
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 800) + ' · one expansion lot per player'),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy expansion · ' + money(cat.EXPAND_COST || 800))));
       }
-      if (me.land != null) return toast('You already own a starter land. Expansion plots are on the right side.', true);
-      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This land is free. You can own one starter land, and only you can plant or decorate on it.'),
+      if (me.land != null) return toast('You already own a starter land. Buy a separate expansion lot on the right, or expand your land one square at a time.', true);
+      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This land is free. You can own one starter land, and only you can plant or decorate on it. Later you can expand it square-by-square.'),
         h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Claim this land')));
     }
     if (L.owner !== myName) {
@@ -417,9 +486,16 @@
         const tile = L.tiles[hit.lx + ',' + hit.ly];
         if (tile && tile.type === 'plant') return viewOtherCrop(L.owner, tile);
       }
-      return toast(L.owner + "'s land — click a plant to peek at progress.", true);
+      return toast(L.owner + "'s land — click a plant to peek at progress, or the land post for harvest stats.", true);
     }
     tileMenu(hit.i, hit.lx, hit.ly);
+  }
+  function openPark() {
+    openModal('Mini Park', () => h('div', { class: 'center' },
+      h('div', { style: 'font-size:22px;font-weight:900' }, 'Slides & benches'),
+      h('div', {}, 'A quiet corner for farmers. Sit on a bench or take a ride down the slide.'),
+      h('button', { class: 'btn green', onclick: () => { closeModal(); toast('Wheee! Down the slide!'); } }, 'Ride a slide'),
+      h('button', { class: 'btn', onclick: () => { closeModal(); toast('Ahh… park bench break.'); } }, 'Sit on a bench')));
   }
   function viewOtherCrop(owner, tile) {
     const sd = cat.SEED_BY[tile.seed]; if (!sd) return;
@@ -478,71 +554,41 @@
   }
 
   // ---------- mini-games + side activities ----------
-  function runMinigame(kind, title, onDone) {
-    const secs = (cat.MINIGAMES[kind] && cat.MINIGAMES[kind].secs) || 5;
-    const body = h('div', { class: 'center', id: 'mg-live' });
-    const timer = h('div', { class: 'muted' });
-    let done = false, taps = 0, need = 10, seq = [], idx = 0, target = 0.55, win = 0.16;
-    const finish = ok => { if (done) return; done = true; closeModal(); onDone(!!ok); };
-    openModal(title, () => {
-      if (kind === 'tap' || kind === 'milk') {
-        need = kind === 'milk' ? 12 : 10;
-        body.append(h('div', { style: 'font-size:40px;font-weight:900', id: 'mg-n' }, '0 / ' + need), h('div', { class: 'muted' }, 'Mash Space / click!'));
-      } else if (kind === 'sequence') {
-        seq = ['W', 'A', 'S', 'D', 'E'].slice(0, 4); idx = 0;
-        body.append(h('div', { id: 'mg-seq', style: 'font-size:28px;font-weight:900;letter-spacing:6px' }, seq.join(' ')), h('div', { class: 'muted' }, 'Press keys in order'));
-      } else if (kind === 'timing') {
-        body.append(h('div', { class: 'bar', style: 'width:100%;position:relative;height:28px' }, h('div', { style: 'position:absolute;left:40%;width:20%;top:0;bottom:0;background:#8fdc7a' }), h('div', { id: 'mg-needle', style: 'position:absolute;top:0;bottom:0;width:4px;background:#c92a2a;left:0' })), h('div', { class: 'muted' }, 'Space when the bar is green'));
-      } else { // match
-        const opts = ['Bloom', 'Sunny', 'Harvest', 'Fresh'], ans = opts[Math.floor(Math.random() * opts.length)];
-        const wrap = h('div', { class: 'grid', style: 'width:100%' });
-        opts.sort(() => Math.random() - .5).forEach(o => wrap.append(h('button', { class: 'btn', onclick: () => finish(o === ans) }, o)));
-        body.append(h('div', {}, 'Pick: "' + ans + '"'), wrap);
-      }
-      return h('div', { class: 'center' }, body, timer);
-    });
-    const start = performance.now();
-    const onKey = e => {
-      if (done) return;
-      const code = e.code || '';
-      if (kind === 'tap' || kind === 'milk') {
-        if (code === 'Space' || e.type === 'mousedown') {
-          e.preventDefault?.(); taps++;
-          const n = document.getElementById('mg-n'); if (n) n.textContent = taps + ' / ' + need;
-          if (taps >= need) finish(true);
-        }
-      } else if (kind === 'sequence') {
-        const map = { KeyW: 'W', KeyA: 'A', KeyS: 'S', KeyD: 'D', KeyE: 'E' };
-        if (!map[code]) return;
-        if (map[code] === seq[idx]) { idx++; const el = document.getElementById('mg-seq'); if (el) el.textContent = seq.map((k, i) => i < idx ? '✓' : k).join(' '); if (idx >= seq.length) finish(true); }
-        else finish(false);
-      } else if (kind === 'timing' && (code === 'Space' || e.type === 'mousedown')) {
-        const at = (performance.now() - start) / 1000 / secs;
-        finish(Math.abs(at - target) <= win);
-      }
-    };
-    const tick = () => {
-      if (done) return;
-      const elapsed = (performance.now() - start) / 1000;
-      timer.textContent = Math.max(0, secs - elapsed).toFixed(1) + 's';
-      if (kind === 'timing') { const nd = document.getElementById('mg-needle'); if (nd) nd.style.left = Math.min(100, (elapsed / secs) * 100) + '%'; }
-      if (elapsed > secs) finish(false); else requestAnimationFrame(tick);
-    };
-    addEventListener('keydown', onKey); addEventListener('mousedown', onKey);
-    const prevClose = modalClose;
-    modalClose = () => { removeEventListener('keydown', onKey); removeEventListener('mousedown', onKey); prevClose && prevClose(); };
-    requestAnimationFrame(tick);
+  async function runMinigame(kind, title) {
+    if (!window.MiniGames) return false;
+    return MiniGames.play(kind, title);
   }
   function openStall(stall) {
     const last = (me.stallAt && me.stallAt[stall.id]) || 0;
     const left = stall.cd * 1000 - (now() - last);
+    const gname = (cat.MINIGAMES[stall.game] && cat.MINIGAMES[stall.game].name) || stall.game;
     openModal(stall.name, () => h('div', { class: 'center' },
-      h('div', {}, 'Run a quick mini-game for a small tip (' + money(stall.pay[0]) + '–' + money(stall.pay[1]) + ').'),
+      h('div', {}, gname + ' for a small tip (' + money(stall.pay[0]) + '–' + money(stall.pay[1]) + ').'),
       h('div', { class: 'muted' }, left > 0 ? 'Cooldown ' + Math.ceil(left / 1000) + 's' : 'Ready!'),
-      h('button', { class: 'btn green', disabled: left > 0, onclick: () => {
+      h('button', { class: 'btn green', disabled: left > 0, onclick: async () => {
         closeModal();
-        runMinigame(stall.game, stall.name, ok => send({ t: 'stall_play', id: stall.id, ok: ok ? 1 : 0 }));
-      } }, 'Play mini-game')));
+        const ok = await runMinigame(stall.game, stall.name + ' · ' + gname);
+        send({ t: 'stall_play', id: stall.id, ok: ok ? 1 : 0 });
+        toast(ok ? 'Nice run!' : 'Try again next time', !ok);
+      } }, 'Play ' + gname)));
+  }
+  function openLandPost(i) {
+    const L = lands[i]; if (!L) return;
+    const st = L.stats || { harvested: 0, growTime: 0, value: 0 };
+    const hrs = (st.growTime / 3600000);
+    openModal('📌 Land ' + (i + 1) + ' Post', () => h('div', { class: 'center' },
+      h('div', {}, L.owner ? ('Owner: ' + L.owner) : 'Unclaimed'),
+      h('div', { style: 'font-size:22px;font-weight:900' }, (st.harvested || 0) + ' crops harvested'),
+      h('div', {}, 'Total grow time: ' + (hrs >= 1 ? hrs.toFixed(1) + ' hr' : Math.round((st.growTime || 0) / 60000) + ' min')),
+      h('div', {}, 'Total harvest value: ' + money(st.value || 0)),
+      h('div', { class: 'muted' }, 'Stats update when crops are harvested on this land.')));
+  }
+  function tryBuySquare(wx, wy) {
+    if (me.land == null) return toast('Claim a starter land first.', true);
+    openModal('Buy this square?', () => h('div', { class: 'center' },
+      h('div', {}, 'Expand your starter land by 1 square for ' + money(cat.SQUARE_COST || 140) + '.'),
+      h('div', { class: 'muted' }, 'Must touch your land. Won\'t overwrite other plots, park, or buildings.'),
+      h('button', { class: 'btn green', onclick: () => { send({ t: 'buy_square', wx, wy }); closeModal(); } }, 'Buy square')));
   }
   function forageBush(bush) {
     openModal('Forage bush', () => h('div', { class: 'center' },
@@ -571,10 +617,11 @@
         box.append(h('button', { class: 'btn', onclick: () => send({ t: 'collect_eggs' }) }, 'Collect eggs'));
         box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: 'chicken' }) }, 'Process chicken → meat'));
       } else {
-        box.append(h('button', { class: 'btn', onclick: () => {
+        box.append(h('button', { class: 'btn', onclick: async () => {
           closeModal();
-          runMinigame('milk', 'Milk the ' + a.name, ok => send({ t: 'milk', id: kind, ok: ok ? 1 : 0 }));
-        } }, 'Milk mini-game'));
+          const ok = await runMinigame('typing', 'Milk the ' + a.name + ' · type carefully');
+          send({ t: 'milk', id: kind, ok: ok ? 1 : 0 });
+        } }, 'Milk (typing game)'));
         box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: kind }) }, 'Process → meat' + (kind === 'sheep' ? ' + wool' : '')));
       }
       box.append(h('div', { class: 'muted' }, 'Sell eggs / milk / wool / meat from your Bag.'));
@@ -677,14 +724,23 @@
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
     for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) {
       const chk = (tx + tz) & 1; let col;
-      if (landGrid[tz][tx] >= 0) col = chk ? '#a5d96f' : '#9bd166'; else if (isMargin(tx, tz)) col = chk ? '#6fbd5e' : '#68b657'; else col = chk ? '#d9d4c3' : '#cfcab8';
+      if (inPark(tx, tz)) col = chk ? '#8fdc7a' : '#7bc96a';
+      else if (landGrid[tz][tx] >= 0) col = chk ? '#a5d96f' : '#9bd166';
+      else if (isMargin(tx, tz)) col = chk ? '#6fbd5e' : '#68b657';
+      else col = chk ? '#d9d4c3' : '#cfcab8';
       view.quad(tx, tz, tx + 1, tz + 1, 0, col, col);
     }
-    // land floors: soil under plants, faint grid on my land, hover highlight
+    // land floors: soil under plants, faint grid on my land (incl. extra squares), hover highlight
     const fpsi = fpsiFor(view.yaw);
     lands.forEach((L, i) => {
       const o = WD.lands[i], mine = L.owner && L.owner === myName;
-      if (mine) for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.16)');
+      if (mine) {
+        for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.16)');
+        for (const k of Object.keys(L.extra || {})) {
+          const [lx, ly] = k.split(',').map(Number);
+          view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.22)');
+        }
+      }
       for (const k in L.tiles) {
         const tile = L.tiles[k]; if (tile.type !== 'plant') continue;
         const [lx, ly] = k.split(',').map(Number);
@@ -694,10 +750,14 @@
     });
     const [mbx, mby] = toBuf(mouse.x, mouse.y); const hp = pickAt(mbx, mby);
     hoverTile = hp && !hp.shop ? hp : null;
-    if (hoverTile && hoverTile.i != null && !modalOpen() && WD.lands[hoverTile.i] && lands[hoverTile.i]) {
-      const o = WD.lands[hoverTile.i], L = lands[hoverTile.i];
-      if (L.owner === myName && hoverTile.lx != null) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0, 'rgba(255,255,255,.4)');
-      else view.quad(o.x, o.y, o.x + LS, o.y + LS, 0, !L.owner ? 'rgba(255,230,120,.3)' : 'rgba(210,70,50,.14)');
+    if (hoverTile && !modalOpen()) {
+      if (hoverTile.buySquare) view.quad(hoverTile.wx, hoverTile.wy, hoverTile.wx + 1, hoverTile.wy + 1, 0, 'rgba(120,200,255,.45)');
+      else if (hoverTile.park && WD.park) view.quad(WD.park.x, WD.park.y, WD.park.x + WD.park.w, WD.park.y + WD.park.h, 0, 'rgba(100,220,140,.22)');
+      else if (hoverTile.i != null && WD.lands[hoverTile.i] && lands[hoverTile.i]) {
+        const o = WD.lands[hoverTile.i], L = lands[hoverTile.i];
+        if (L.owner === myName && hoverTile.lx != null) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0, 'rgba(255,255,255,.4)');
+        else view.quad(o.x, o.y, o.x + LS, o.y + LS, 0, !L.owner ? 'rgba(255,230,120,.3)' : 'rgba(210,70,50,.14)');
+      }
     }
 
     // objects
@@ -741,21 +801,26 @@
     lctx.font = 'bold 18px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#6b1a0d'; lctx.strokeText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.fillStyle = '#fff3c4'; lctx.fillText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.textAlign = 'left';
     if (nearShop() && !modalOpen()) tag('Press F or click the shop', sc[0], sc[1] + 20, '#ffe066');
     for (const s of (WD.stalls || [])) { const p = toPage(s.x, 1.1, s.y); if (p[0] > -40 && p[0] < vw + 40) tag(s.name, p[0], p[1], '#ffe8a3'); }
-    if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('🐾 Pet Shop', p[0], p[1], '#e5dbff'); }
+    if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
+    if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
+    WD.lands.forEach((o, i) => { const p = toPage(o.x + .35, 1.15, o.y + .35); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
     for (const p of list) { const s = toPage(p.rx / TILE, 1.7, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
-    let hint = 'WASD · side stalls/pens/bushes · peek others\' crops · Enter chat';
-    if (me.land == null) hint = 'Claim a starter land (1–8) 🌱 · expansion plots are on the right';
+    let hint = 'WASD · stalls (5 mini-games) · park slides · land posts · Enter chat';
+    if (me.land == null) hint = 'Claim a starter land (1–8) · expansion lots are separate on the right';
     else if (hoverTile) {
-      if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name + ' mini-game';
+      if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name;
       else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
+      else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';
+      else if (hoverTile.post != null) hint = 'Click: Land post — harvest stats';
+      else if (hoverTile.buySquare) hint = 'Click: buy this square for ' + money(cat.SQUARE_COST || 140);
       else if (hoverTile.i != null && lands[hoverTile.i]) {
         const L = lands[hoverTile.i];
-        hint = L.owner === myName ? 'Click: plant, decorate, or harvest' : L.owner ? 'Click their plants to view growth' : (WD.lands[hoverTile.i].expand ? 'Paid expansion plot' : 'Unclaimed land');
+        hint = L.owner === myName ? 'Click: plant, decorate, or harvest · edge tiles expand land' : L.owner ? 'Click plants or the land post' : (WD.lands[hoverTile.i].expand ? 'Separate paid expansion lot' : 'Unclaimed land');
       }
     }
     $('#hint').textContent = hint; $('#hint').style.display = modalOpen() ? 'none' : '';

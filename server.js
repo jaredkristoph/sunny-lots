@@ -22,11 +22,40 @@ try { db = Object.assign(db, JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))); } ca
 function ensureLands() {
   // Only append missing lands — never relocate or wipe tiles on existing plots
   for (let i = 0; i < C.WORLD.landCount; i++) {
-    if (!db.lands[i]) db.lands[i] = { owner: null, tiles: {} };
-    else if (!db.lands[i].tiles) db.lands[i].tiles = {};
+    if (!db.lands[i]) db.lands[i] = { owner: null, tiles: {}, extra: {}, stats: { harvested: 0, growTime: 0, value: 0 } };
+    else {
+      if (!db.lands[i].tiles) db.lands[i].tiles = {};
+      if (!db.lands[i].extra) db.lands[i].extra = {};
+      if (!db.lands[i].stats) db.lands[i].stats = { harvested: 0, growTime: 0, value: 0 };
+    }
   }
 }
 ensureLands();
+function landFootprint(i) {
+  const meta = C.WORLD.lands[i]; if (!meta) return new Set();
+  const set = new Set();
+  for (let ty = 0; ty < C.WORLD.landSize; ty++) for (let tx = 0; tx < C.WORLD.landSize; tx++) set.add((meta.x + tx) + ',' + (meta.y + ty));
+  const L = db.lands[i];
+  for (const k of Object.keys(L.extra || {})) {
+    const [rx, ry] = k.split(',').map(Number);
+    set.add((meta.x + rx) + ',' + (meta.y + ry));
+  }
+  return set;
+}
+function worldBlocked(wx, wy) {
+  if (wx < 0 || wy < 0 || wx >= C.WORLD.width || wy >= C.WORLD.height) return true;
+  const S = C.WORLD.shop;
+  if (wx >= S.x && wx < S.x + S.w && wy >= S.y && wy < S.y + S.h) return true;
+  if (C.WORLD.park && wx >= C.WORLD.park.x && wx < C.WORLD.park.x + C.WORLD.park.w && wy >= C.WORLD.park.y && wy < C.WORLD.park.y + C.WORLD.park.h) return true;
+  if (C.WORLD.petShop && wx >= C.WORLD.petShop.x && wx < C.WORLD.petShop.x + C.WORLD.petShop.w && wy >= C.WORLD.petShop.y && wy < C.WORLD.petShop.y + C.WORLD.petShop.h) return true;
+  for (const p of Object.values(C.WORLD.pens || {})) if (wx >= p.x && wx < p.x + p.w && wy >= p.y && wy < p.y + p.h) return true;
+  for (let i = 0; i < db.lands.length; i++) if (landFootprint(i).has(wx + ',' + wy)) return true;
+  return false;
+}
+function relOwned(L, tx, ty) {
+  if (tx >= 0 && ty >= 0 && tx < C.WORLD.landSize && ty < C.WORLD.landSize) return true;
+  return !!(L.extra && L.extra[tx + ',' + ty]);
+}
 function ensureUser(u) {
   if (!u.animals) u.animals = { chicken: 0, cow: 0, sheep: 0 };
   if (!u.products) u.products = {};
@@ -116,7 +145,8 @@ app.get('/api/catalog', (req, res) => {
     SEEDS: C.SEEDS, FURNITURE: C.FURNITURE.filter(f => f.buyable !== false), CLOTHES: C.CLOTHES.filter(c => c.buyable !== false),
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
-    GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
+    GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, SQUARE_COST: C.SQUARE_COST, SQUARE_MAX: C.SQUARE_MAX,
+    ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
   });
 });
@@ -168,7 +198,12 @@ const meView = u => ({
 const ownsLand = (u, i) => u.land === i || u.expandLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
 const playerList = () => [...online.values()].map(c => ({ n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar }));
-const landView = l => ({ owner: l.owner ? db.users[l.owner].name : null, tiles: l.tiles });
+const landView = l => ({
+  owner: l.owner ? db.users[l.owner].name : null,
+  tiles: l.tiles,
+  extra: l.extra || {},
+  stats: l.stats || { harvested: 0, growTime: 0, value: 0 },
+});
 const growMs = seed => seed.hours * 3600000 / SPEED;
 const ownsCloth = (u, id) => {
   if (!id) return true;
@@ -217,9 +252,9 @@ wss.on('connection', ws => {
     }
     const u = c.u;
     ensureUser(u);
-    const tileOK = Number.isInteger(m.tx) && Number.isInteger(m.ty) && m.tx >= 0 && m.ty >= 0 && m.tx < C.WORLD.landSize && m.ty < C.WORLD.landSize;
     const landIdx = Number.isInteger(m.land) ? m.land : u.land;
     const actLand = (landIdx != null && ownsLand(u, landIdx)) ? db.lands[landIdx] : null;
+    const tileOK = actLand && Number.isInteger(m.tx) && Number.isInteger(m.ty) && relOwned(actLand, m.tx, m.ty);
     const setTile = (li, key, tile) => {
       const L = db.lands[li]; if (!L) return;
       if (tile) L.tiles[key] = tile; else delete L.tiles[key];
@@ -287,10 +322,54 @@ wss.on('connection', ws => {
         const seed = C.SEED_BY[tile.seed];
         if (Date.now() < tile.at + growMs(seed)) return err('Not ready yet.');
         const key = seed.id + (tile.gold ? '_gold' : '');
+        const val = seed.sell * (tile.gold ? C.GOLD_MULT : 1);
         u.crops[key] = (u.crops[key] || 0) + 1;
+        const st = actLand.stats || (actLand.stats = { harvested: 0, growTime: 0, value: 0 });
+        st.harvested += 1;
+        st.growTime += Math.max(0, Date.now() - tile.at);
+        st.value += val;
         setTile(landIdx, k, null);
+        broadcast({ t: 'land_stats', land: landIdx, stats: st });
         sendMe(c);
         send(ws, { t: 'harvested', seed: seed.id, gold: !!tile.gold });
+        break;
+      }
+      case 'buy_square': {
+        // Buy one adjacent world tile as expansion of your starter land (not expansion plots)
+        if (u.land == null) return err('Claim a starter land first.');
+        const li = u.land;
+        const meta = C.WORLD.lands[li];
+        if (!meta || meta.expand) return err('Only starter lands expand per square.');
+        const L = db.lands[li];
+        const extras = Object.keys(L.extra || {});
+        if (extras.length >= C.SQUARE_MAX) return err('Max ' + C.SQUARE_MAX + ' extra squares on this land.');
+        const wx = Math.floor(Number(m.wx)), wy = Math.floor(Number(m.wy));
+        if (!Number.isFinite(wx) || !Number.isFinite(wy)) return;
+        const rx = wx - meta.x, ry = wy - meta.y;
+        // must be adjacent to current footprint
+        const foot = landFootprint(li);
+        const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => foot.has((wx - dx) + ',' + (wy - dy)));
+        if (!adj) return err('Pick a square next to your land.');
+        if (foot.has(wx + ',' + wy)) return err('You already own that square.');
+        // temporarily ignore self footprint for blocked check
+        const othersBlocked = (() => {
+          if (wx < 0 || wy < 0 || wx >= C.WORLD.width || wy >= C.WORLD.height) return true;
+          const S = C.WORLD.shop;
+          if (wx >= S.x && wx < S.x + S.w && wy >= S.y && wy < S.y + S.h) return true;
+          if (C.WORLD.park && wx >= C.WORLD.park.x && wx < C.WORLD.park.x + C.WORLD.park.w && wy >= C.WORLD.park.y && wy < C.WORLD.park.y + C.WORLD.park.h) return true;
+          if (C.WORLD.petShop && wx >= C.WORLD.petShop.x && wx < C.WORLD.petShop.x + C.WORLD.petShop.w && wy >= C.WORLD.petShop.y && wy < C.WORLD.petShop.y + C.WORLD.petShop.h) return true;
+          for (const p of Object.values(C.WORLD.pens || {})) if (wx >= p.x && wx < p.x + p.w && wy >= p.y && wy < p.y + p.h) return true;
+          for (let i = 0; i < db.lands.length; i++) if (i !== li && landFootprint(i).has(wx + ',' + wy)) return true;
+          return false;
+        })();
+        if (othersBlocked) return err('That square is blocked.');
+        if (u.money < C.SQUARE_COST) return err('Need $' + C.SQUARE_COST + ' per square.');
+        u.money -= C.SQUARE_COST;
+        L.extra[rx + ',' + ry] = 1;
+        touch();
+        broadcast({ t: 'land_extra', land: li, extra: L.extra });
+        sendMe(c);
+        ok('Expanded your land by 1 square!');
         break;
       }
       case 'place': {

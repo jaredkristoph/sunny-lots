@@ -352,6 +352,29 @@ const Vox = (() => {
     B.add(0, .35, d / 2, .35, .55, .04, '#8a5a2b');
     return B;
   }
+  function slideBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, .5, .08, .9, '#adb5bd');
+    B.add(-.15, .08, -.2, .12, .7, .12, '#868e96');
+    B.add(.15, .08, -.2, .12, .7, .12, '#868e96');
+    for (let i = 0; i < 6; i++) B.add(0, .08 + i * .1, -.15 + i * .12, .42, .06, .22, i % 2 ? '#4dabf7' : '#74c0fc');
+    B.add(0, .7, -.25, .5, .08, .35, '#ffd43b');
+    return B;
+  }
+  function parkBench() {
+    const B = mk();
+    B.add(0, .22, 0, .7, .06, .28, '#a0703c');
+    B.add(0, .08, -.12, .7, .28, .06, '#8a5a2b');
+    B.add(-.28, 0, .08, .08, .22, .08, '#7a5230'); B.add(.28, 0, .08, .08, .22, .08, '#7a5230');
+    return B;
+  }
+  function landPost() {
+    const B = mk();
+    B.add(0, 0, 0, .12, .7, .12, '#7a5230');
+    B.add(0, .72, 0, .55, .38, .08, '#f8e8c8');
+    B.add(0, .72, .05, .48, .3, .02, '#fff8e1');
+    return B;
+  }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, bushBoxes, shopBox };
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost };
 })();

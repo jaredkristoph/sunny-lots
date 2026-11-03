@@ -147,39 +147,48 @@ const DEFAULT_AVATAR = {
 // IMPORTANT: original 8 lands keep EXACT coords so existing saves/crops stay valid.
 // Map grows RIGHT and DOWN only; new POIs + expansion plots live in the new strip.
 const LAND_SIZE = 8;
-const EXPAND_COST = 800; // buy a side expansion plot (lands 8+)
+const EXPAND_COST = 800; // buy a separate expansion plot (lands 8+)
+const SQUARE_COST = 140; // buy one extra tile around your starter land
+const SQUARE_MAX = 20;   // max bought squares per starter land
 const WORLD = {
   tile: 48,
   landSize: LAND_SIZE,
   landCount: 12, // 8 original + 4 expansion plots (never move indices 0-7)
-  width: 58,
-  height: 36,
+  width: 62,
+  height: 40,
   lands: [],
   shop: { x: 18, y: 11, w: 6, h: 3 },
   shopDoor: { x: 21, y: 14.6 },
-  // side stalls / buildings (tile coords) — outside original plots
+  // side stalls — each runs one of the five mini-games
   stalls: [
-    { id: 'lemonade', name: 'Lemonade Stand', x: 0.5, y: 8, game: 'tap', pay: [10, 18], cd: 40 },
-    { id: 'flowers', name: 'Flower Cart', x: 0.5, y: 12, game: 'match', pay: [12, 20], cd: 45 },
-    { id: 'craft', name: 'Craft Hut', x: 0.5, y: 16, game: 'timing', pay: [14, 22], cd: 50 },
-    { id: 'bakery', name: 'Corner Bakery', x: 0.5, y: 20, game: 'sequence', pay: [12, 22], cd: 45 },
-    { id: 'arcade', name: 'Tiny Arcade', x: 40.5, y: 12, game: 'tap', pay: [15, 24], cd: 55 },
+    { id: 'lemonade', name: 'Lemonade Stand', x: 0.5, y: 8, game: 'typing', pay: [12, 20], cd: 45 },
+    { id: 'flowers', name: 'Flower Cart', x: 0.5, y: 12, game: 'simon', pay: [12, 22], cd: 50 },
+    { id: 'craft', name: 'Egg Catch Hut', x: 0.5, y: 16, game: 'eggs', pay: [14, 24], cd: 50 },
+    { id: 'bakery', name: 'Invader Arcade', x: 0.5, y: 20, game: 'invader', pay: [15, 26], cd: 55 },
+    { id: 'arcade', name: 'Race Booth', x: 40.5, y: 12, game: 'race', pay: [15, 26], cd: 55 },
   ],
-  petShop: { x: 44, y: 28, w: 4, h: 3 },
+  petShop: { x: 14, y: 30, w: 4, h: 3 },
   pens: {
-    chicken: { x: 49, y: 2, w: 4, h: 4 },
-    cow: { x: 49, y: 8, w: 4, h: 4 },
-    sheep: { x: 49, y: 14, w: 4, h: 4 },
+    chicken: { x: 1, y: 28, w: 4, h: 4 },
+    cow: { x: 1, y: 33, w: 4, h: 4 },
+    sheep: { x: 6, y: 33, w: 4, h: 4 },
   },
+  // mini park with slides (bottom-center, clear of original lands)
+  park: { x: 22, y: 28, w: 10, h: 7 },
   bushes: [
-    { id: 'b1', x: 6, y: 28 }, { id: 'b2', x: 12, y: 30 }, { id: 'b3', x: 20, y: 29 },
-    { id: 'b4', x: 28, y: 31 }, { id: 'b5', x: 36, y: 28 }, { id: 'b6', x: 8, y: 33 },
-    { id: 'b7', x: 24, y: 34 }, { id: 'b8', x: 40, y: 33 },
+    { id: 'b1', x: 34, y: 30 }, { id: 'b2', x: 38, y: 33 }, { id: 'b3', x: 42, y: 30 },
+    { id: 'b4', x: 46, y: 34 }, { id: 'b5', x: 20, y: 36 }, { id: 'b6', x: 28, y: 37 },
+    { id: 'b7', x: 12, y: 37 }, { id: 'b8', x: 50, y: 28 },
   ],
 };
 for (let i = 0; i < 8; i++) WORLD.lands.push({ x: 2 + (i % 4) * 10, y: 2 + Math.floor(i / 4) * 14, expand: false });
-// expansion plots on the far-right strip (do not overlap original lands)
-for (let i = 0; i < 4; i++) WORLD.lands.push({ x: 44, y: 2 + i * 6, expand: true });
+// expansion lots — well separated (12+ tile gaps), never overlap each other or starters
+WORLD.lands.push(
+  { x: 50, y: 2, expand: true },
+  { x: 50, y: 16, expand: true },
+  { x: 50, y: 30, expand: true },
+  { x: 42, y: 22, expand: true },
+);
 
 // Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
 const RARE_FURN = [
@@ -219,16 +228,16 @@ const PRODUCTS = {
 };
 
 const MINIGAMES = {
-  tap: { name: 'Tap Rush', secs: 4.5 },
-  match: { name: 'Pick Match', secs: 6 },
-  timing: { name: 'Green Zone', secs: 4.2 },
-  sequence: { name: 'Key Path', secs: 6 },
-  milk: { name: 'Milk Rhythm', secs: 5 },
+  typing: { name: 'Typing Sentence' },
+  simon: { name: 'Simon Says' },
+  eggs: { name: 'Catch Falling Eggs' },
+  invader: { name: 'Space Invaders' },
+  race: { name: 'Race Simulator' },
 };
 
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
-  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST,
+  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, SQUARE_COST, SQUARE_MAX,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),
