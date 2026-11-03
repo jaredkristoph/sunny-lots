@@ -162,8 +162,14 @@ const LAND_GAP = 5; // empty tiles between neighboring starter plots
 const LAND_STRIDE = LAND_SIZE + LAND_GAP; // 13
 const EXPAND_COST = 25000; // separate expansion farm plots
 const HOUSE_COST = 10000;  // dedicated house-building lots
-const SQUARE_COST = 140; // buy one extra tile around your starter land
+const SQUARE_COST = 140; // first extra tile around your starter farm
+const SQUARE_GROW = 70;  // each next square costs this much more than the previous
 const SQUARE_MAX = 20;   // max bought squares per starter land
+/** Price for the next square given how many extras you already own */
+function squarePrice(ownedExtras) {
+  const n = Math.max(0, Math.floor(Number(ownedExtras) || 0));
+  return SQUARE_COST + n * SQUARE_GROW;
+}
 const TAP_MIN = 0.1;     // plant-care tap earnings while growing
 const TAP_MAX = 0.5;
 const WORLD = {
@@ -287,7 +293,7 @@ const MINIGAMES = {
 
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
-  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_MAX,
+  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_GROW, SQUARE_MAX, squarePrice,
   TAP_MIN, TAP_MAX, NPC_HOME_FURN,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),

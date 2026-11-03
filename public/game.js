@@ -632,13 +632,21 @@
       h('div', {}, 'Total harvest value: ' + money(st.value || 0)),
       h('div', { class: 'muted' }, 'Stats update when crops are harvested on this land.')));
   }
+  function nextSquarePrice() {
+    const L = me && me.land != null ? lands[me.land] : null;
+    const n = L && L.extra ? Object.keys(L.extra).length : 0;
+    const base = cat.SQUARE_COST || 140, grow = cat.SQUARE_GROW || 70;
+    return base + n * grow;
+  }
   function tryBuySquare(wx, wy) {
     if (me.land == null) return toast('Claim a Farm Lot first.', true);
     if (me.houseLand != null && landGrid[wy] && landGrid[wy][wx] === me.houseLand) return toast('House lots cannot expand.', true);
+    const price = nextSquarePrice();
+    const owned = (lands[me.land] && lands[me.land].extra) ? Object.keys(lands[me.land].extra).length : 0;
     openModal('Buy this square?', () => h('div', { class: 'center' },
-      h('div', {}, 'Expand your Farm Lot by 1 square for ' + money(cat.SQUARE_COST || 140) + '.'),
-      h('div', { class: 'muted' }, 'Only starter farms expand. House lots stay fixed.'),
-      h('button', { class: 'btn green', onclick: () => { send({ t: 'buy_square', wx, wy }); closeModal(); } }, 'Buy square')));
+      h('div', {}, 'Expand your Farm Lot by 1 square for ' + money(price) + '.'),
+      h('div', { class: 'muted' }, 'Square #' + (owned + 1) + ' · each next square costs +' + money(cat.SQUARE_GROW || 70) + ' more. House lots stay fixed.'),
+      h('button', { class: 'btn green', disabled: me.money < price, onclick: () => { send({ t: 'buy_square', wx, wy }); closeModal(); } }, 'Buy for ' + money(price))));
   }
   function forageBush(bush) {
     openModal('Forage bush', () => h('div', { class: 'center' },
@@ -1000,7 +1008,7 @@
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
       else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';
       else if (hoverTile.post != null) hint = 'Click: Land post — harvest stats';
-      else if (hoverTile.buySquare) hint = 'Click: buy this farm square for ' + money(cat.SQUARE_COST || 140);
+      else if (hoverTile.buySquare) hint = 'Click: buy this farm square for ' + money(nextSquarePrice());
       else if (hoverTile.i != null && lands[hoverTile.i]) {
         const L = lands[hoverTile.i];
         const meta = WD.lands[hoverTile.i] || {};

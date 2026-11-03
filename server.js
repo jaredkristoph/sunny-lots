@@ -168,7 +168,8 @@ app.get('/api/catalog', (req, res) => {
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
     GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, HOUSE_COST: C.HOUSE_COST,
-    SQUARE_COST: C.SQUARE_COST, SQUARE_MAX: C.SQUARE_MAX, TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
+    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX,
+    TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
     ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
   });
@@ -410,6 +411,7 @@ wss.on('connection', ws => {
         const L = db.lands[li];
         const extras = Object.keys(L.extra || {});
         if (extras.length >= C.SQUARE_MAX) return err('Max ' + C.SQUARE_MAX + ' extra squares on this land.');
+        const price = C.squarePrice(extras.length);
         const wx = Math.floor(Number(m.wx)), wy = Math.floor(Number(m.wy));
         if (!Number.isFinite(wx) || !Number.isFinite(wy)) return;
         const rx = wx - meta.x, ry = wy - meta.y;
@@ -430,13 +432,13 @@ wss.on('connection', ws => {
           return false;
         })();
         if (othersBlocked) return err('That square is blocked.');
-        if (u.money < C.SQUARE_COST) return err('Need $' + C.SQUARE_COST + ' per square.');
-        u.money -= C.SQUARE_COST;
+        if (u.money < price) return err('Need $' + price + ' for the next square (gets pricier each time).');
+        u.money = roundMoney(u.money - price);
         L.extra[rx + ',' + ry] = 1;
         touch();
         broadcast({ t: 'land_extra', land: li, extra: L.extra });
         sendMe(c);
-        ok('Expanded your land by 1 square!');
+        ok('Expanded +1 square for $' + price + '! Next costs $' + C.squarePrice(extras.length + 1) + '.');
         break;
       }
       case 'place': {
