@@ -44,9 +44,8 @@ function ensureNpcHouse() {
   }
   L.npcReady = true;
   L.stats = { harvested: 0, growTime: 0, value: 0 };
-  touch();
+  dirty = true;
 }
-ensureNpcHouse();
 function landFootprint(i) {
   const meta = C.WORLD.lands[i]; if (!meta) return new Set();
   const set = new Set();
@@ -93,6 +92,7 @@ const roundMoney = v => Math.round(Number(v) * 100) / 100;
 for (const u of Object.values(db.users)) ensureUser(u);
 let dirty = true;
 const touch = () => { dirty = true; };
+ensureNpcHouse();
 
 // Optional Upstash Redis storage (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN).
 // When set, the whole game state is stored under one key, so no persistent disk is needed.
