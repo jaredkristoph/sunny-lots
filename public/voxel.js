@@ -414,14 +414,14 @@ const Vox = (() => {
     B.add(0, .05, 2.55, 2.5, .1, 1.0, '#c9a066');
     B.add(-1.05, .1, 2.95, .12, .75, .12, trim);
     B.add(1.05, .1, 2.95, .12, .75, .12, trim);
-    B.add(0, .82, 2.95, 2.3, .08, .75, '#c92a2a');
+    B.add(0, .82, 2.95, 2.3, .08, .75, '#a0703c');
     [[0, 3.45], [-.35, 3.75], [.3, 3.95]].forEach(([x, z]) => B.add(x, 0, z, .35, .05, .28, '#adb5bd'));
     return B;
   }
   function modelHomeShell(alpha) {
     const B = mk();
     const a = alpha == null ? 1 : alpha;
-    const wall = '#f6e7c8', trim = '#8a5a2b', roof = '#c92a2a', roofDk = '#9b1c1c', glass = '#9ec9e8';
+    const wall = '#f6e7c8', trim = '#8a5a2b', roof = '#c92a2a', glass = '#9ec9e8';
     // walls
     B.add(0, .2, -2.25, 5.5, 1.6, .22, wall, a);           // back
     B.add(-2.65, .2, -.2, .22, 1.6, 4.3, wall, a);          // left
@@ -436,20 +436,9 @@ const Vox = (() => {
       B.add(x, .6, z, .72, .58, .1, trim, a);
       B.add(x, .63, z + (z < 0 ? .06 : -.06), .58, .45, .04, glass, Math.min(1, a + .15));
     });
-    // pitched roof along X (ridge on top) — reads as a house from outside
-    for (let i = 0; i < 6; i++) {
-      const t = i / 5;
-      const w = 5.9 - i * 0.85;
-      const h = 1.72 + i * 0.2;
-      const d = 4.7 - i * 0.55;
-      B.add(0, h, -.2, w, .14, d, i % 2 ? roofDk : roof, a);
-    }
-    // gable peaks (front/back triangles suggested by vertical fill)
-    B.add(0, 1.85, -2.35, .15, 1.1, .12, wall, a);
-    B.add(0, 1.85, 2.05, .15, .9, .12, wall, a);
-    // chimney
-    B.add(1.7, 2.2, -1.15, .42, 1.15, .42, '#868e96', a);
-    B.add(1.7, 3.3, -1.15, .52, .1, .52, '#495057', a);
+    // top trim / wall cap (no big roof slab — it looked bad from above)
+    B.add(0, 1.78, -.2, 5.7, .1, 4.5, trim, a);
+    B.add(0, 1.88, -.2, 5.3, .06, 4.1, roof, a);
     return B;
   }
   function modelHomeCottage(alpha) {
