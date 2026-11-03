@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Sunny Lots</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#6fb85f;font-family:'Trebuchet MS',Verdana,sans-serif;color:#3b2a1a}
+canvas#game,canvas#labels{position:fixed;inset:0;width:100%;height:100%;display:block}
+canvas#game{image-rendering:pixelated}
+canvas#labels{pointer-events:none}
+.item img,.lrow img,.ico{image-rendering:pixelated}
+.item img{width:56px;height:56px;object-fit:contain}
+button{font:inherit;cursor:pointer}
+.btn{background:#ffd76a;border:2px solid #b8862b;border-radius:10px;padding:6px 12px;color:#5a3a0a;font-weight:700;box-shadow:0 2px 0 #b8862b}
+.btn:hover{background:#ffe38f}.btn:active{transform:translateY(2px);box-shadow:none}
+.btn.sm{padding:3px 9px;font-size:13px;border-radius:8px}
+.btn.green{background:#8fdc7a;border-color:#3d8f2c;box-shadow:0 2px 0 #3d8f2c;color:#1f4f14}
+.btn.red{background:#ff9d8f;border-color:#b5432f;box-shadow:0 2px 0 #b5432f;color:#6b1a0d}
+.btn[disabled]{opacity:.45;cursor:not-allowed;filter:grayscale(.5)}
+#hud{position:fixed;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;gap:8px;pointer-events:none;flex-wrap:wrap}
+#hud>*{pointer-events:auto}
+.pill{background:rgba(255,248,225,.95);border:2px solid #b8862b;border-radius:14px;padding:6px 12px;font-weight:700;display:flex;gap:12px;align-items:center}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+#chat{position:fixed;left:8px;bottom:8px;width:min(340px,70vw);display:flex;flex-direction:column;gap:4px}
+#chatlog{max-height:150px;overflow:auto;background:rgba(40,30,15,.55);border-radius:10px;padding:6px 8px;color:#fff;font-size:13px;line-height:1.35}
+#chatlog b{color:#ffd76a}#chatlog i{color:#cfe8c0}
+#chatinput{border:2px solid #b8862b;border-radius:10px;padding:6px 10px;font:inherit;background:#fffbe9}
+#hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(255,248,225,.92);border:2px solid #b8862b;border-radius:12px;padding:5px 12px;font-size:13px;pointer-events:none;max-width:44vw;text-align:center}
+#toasts{position:fixed;top:64px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none;z-index:50}
+.toast{background:#fff8e1;border:2px solid #b8862b;border-radius:10px;padding:6px 14px;font-weight:700;animation:pop .2s}
+.toast.bad{background:#ffe0da;border-color:#b5432f}
+@keyframes pop{from{transform:scale(.8);opacity:0}to{transform:none;opacity:1}}
+#overlay{position:fixed;inset:0;background:rgba(30,20,5,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:10px}
+#overlay[hidden],#hud[hidden],#chat[hidden]{display:none}
+.modal{background:#fff8e1;border:3px solid #b8862b;border-radius:18px;width:min(720px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#ffd76a;border-radius:15px 15px 0 0;border-bottom:3px solid #b8862b;font-size:18px}
+.mhead .x{background:none;border:none;font-size:20px;color:#5a3a0a}
+.mbody{padding:12px 14px;overflow:auto}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tab{padding:5px 12px;border-radius:10px;border:2px solid #b8862b;background:#fff;font-weight:700}
+.tab.on{background:#ffd76a}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.item{background:#fff;border:2px solid #e3c88a;border-radius:12px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;font-size:13px}
+.item.own{border-color:#6bbf59}
+.item img{width:56px;height:56px}
+.item .nm{font-weight:700}
+.list .lrow{display:flex;align-items:center;gap:10px;background:#fff;border:2px solid #e3c88a;border-radius:12px;padding:6px 10px;margin-bottom:6px}
+.lrow img{width:48px;height:48px}.lrow .grow{flex:1}
+.muted{color:#8a6f45;font-size:12px}
+.gold{color:#c98a00;font-weight:800}
+.bar{height:16px;background:#e8d9b0;border-radius:8px;overflow:hidden;border:2px solid #b8862b}
+.bar>div{height:100%;background:linear-gradient(#9ae07a,#4fb13a)}
+.sw{width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #b8862b;cursor:pointer}
+.sw.on{box-shadow:0 0 0 3px #3d8f2c;transform:scale(1.15)}
+.center{display:flex;flex-direction:column;align-items:center;gap:10px}
+input.txt{border:2px solid #b8862b;border-radius:10px;padding:8px 12px;font:inherit;background:#fffbe9;width:100%}
+.pw{font-family:monospace;font-size:28px;letter-spacing:2px;background:#fffbe9;border:3px dashed #3d8f2c;border-radius:12px;padding:10px 16px;user-select:all}
+select{font:inherit;border:2px solid #b8862b;border-radius:8px;padding:3px 6px;background:#fff}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="labels"></canvas>
+<div id="hud" hidden>
+  <div class="pill"><span id="hud-name"></span><span id="hud-money"></span></div>
+  <div class="row">
+    <button class="btn" id="b-rl" title="Rotate left (Q)">⟲</button>
+    <button class="btn" id="b-rr" title="Rotate right (E)">⟳</button>
+    <button class="btn" id="b-bag">🎒 Bag</button>
+    <button class="btn" id="b-ward">👕 Wardrobe</button>
+    <button class="btn" id="b-home">🏠 Home</button>
+    <button class="btn" id="b-shop">🏪 Shop</button>
+    <button class="btn red" id="b-out">Log out</button>
+  </div>
+</div>
+<div id="chat" hidden><div id="chatlog"></div><input id="chatinput" maxlength="120" placeholder="Press Enter to chat…" autocomplete="off"></div>
+<div id="hint"></div>
+<div id="toasts"></div>
+<div id="overlay" hidden></div>
+<script src="voxel.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
