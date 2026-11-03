@@ -349,6 +349,25 @@ const Vox = (() => {
     }
     return B;
   }
+  function petBoxes(kind) {
+    const B = mk();
+    if (kind === 'pet_dog') {
+      B.add(0, .12, 0, .28, .2, .18, '#c9a066'); B.add(-.16, .22, 0, .14, .14, .14, '#c9a066');
+      B.add(-.2, .28, .06, .05, .05, .05, '#212529'); B.add(-.22, .18, -.02, .08, .06, .04, '#8a5a2b');
+      [[-.08, .08], [.1, .08], [-.08, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .06, .12, .06, '#8a5a2b'));
+      B.add(.16, .2, 0, .05, .05, .16, '#c9a066');
+    } else if (kind === 'pet_cat') {
+      B.add(0, .1, 0, .24, .16, .16, '#868e96'); B.add(-.12, .2, 0, .12, .12, .12, '#868e96');
+      B.add(-.16, .3, -.04, .05, .08, .04, '#868e96'); B.add(-.16, .3, .04, .05, .08, .04, '#868e96');
+      B.add(.14, .16, 0, .05, .05, .14, '#adb5bd');
+      [[-.06, .05], [.08, .05], [-.06, -.05], [.08, -.05]].forEach(([x, z]) => B.add(x, 0, z, .05, .1, .05, '#495057'));
+    } else {
+      B.add(0, .1, 0, .2, .16, .16, '#fff'); B.add(-.1, .18, 0, .12, .12, .12, '#fff');
+      B.add(-.14, .22, 0, .06, .06, .04, '#ffc9c9'); B.add(.12, .14, 0, .05, .05, .1, '#fff');
+      [[-.05, .05], [.06, .05], [-.05, -.05], [.06, -.05]].forEach(([x, z]) => B.add(x, 0, z, .04, .1, .04, '#ffc9c9'));
+    }
+    return B;
+  }
   function bushBoxes() {
     const B = mk();
     B.add(0, 0, 0, .5, .35, .5, '#2f9e44'); B.add(0, .2, 0, .4, .3, .4, '#37b24d'); B.add(.1, .35, .05, .2, .18, .2, '#40c057');
@@ -386,5 +405,5 @@ const Vox = (() => {
     return B;
   }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost };
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost };
 })();

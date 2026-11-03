@@ -91,6 +91,10 @@
     const o = players[p.n];
     if (!o) players[p.n] = { n: p.n, x: p.x, y: p.y, rx: p.x, ry: p.y, a: p.a, psi: view.yaw + PI, walk: 0, say: null };
     else { o.x = p.x; o.y = p.y; o.a = p.a; }
+    Object.assign(players[p.n], {
+      animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+      land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
+    });
   }
   function onMsg(m) {
     switch (m.t) {
@@ -242,7 +246,17 @@
         return h('div', { class: 'lrow' }, h('div', { class: 'grow' }, h('b', {}, p.name), h('div', { class: 'muted' }, money(p.sell) + ' each')),
           '×' + n, h('button', { class: 'btn sm green', onclick: () => send({ t: 'sell', kind: 'product', id, qty: 'all' }) }, 'Sell'));
       }).filter(Boolean));
-      if ((me.pets || []).length) sec('Pets', me.pets.map(id => { const p = (cat.PETS || []).find(x => x.id === id); return h('div', { class: 'lrow' }, h('b', {}, p ? p.name : id)); }));
+      if ((me.pets || []).length) {
+        sec('Pets', me.pets.map(id => { const p = (cat.PETS || []).find(x => x.id === id); return h('div', { class: 'lrow' }, h('b', {}, p ? p.name : id)); }));
+        b.append(h('div', { class: 'muted' }, 'Pet stay:'), h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px;margin-bottom:8px' },
+          [['follow', 'Follow me'], ['farm', 'Stay on farm'], ['house', 'Stay at house']].map(([w, lab]) =>
+            h('button', { class: 'btn sm' + ((me.petStay || 'follow') === w ? ' green' : ''), onclick: () => send({ t: 'set_stay', kind: 'pet', where: w }) }, lab))));
+      }
+      if (me.animals && (me.animals.chicken || me.animals.cow || me.animals.sheep)) {
+        b.append(h('div', { class: 'muted' }, 'Livestock roam:'), h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px;margin-bottom:8px' },
+          [['farm', 'On farm'], ['house', 'At house']].map(([w, lab]) =>
+            h('button', { class: 'btn sm' + ((me.animalStay || 'farm') === w ? ' green' : ''), onclick: () => send({ t: 'set_stay', kind: 'animal', where: w }) }, lab))));
+      }
       b.append(h('div', { class: 'muted' }, 'Shop sells house pieces (doors, gates, walls, TVs…). Stalls = mini-games. Bushes ~5% rare loot.'));
       return b;
     });
@@ -476,33 +490,40 @@
     const L = lands[hit.i];
     if (!L.owner) {
       const meta = WD.lands[hit.i] || {};
+      if (meta.npc || L.npc) return toast('Sunny Homes model house — walk around for decorating ideas!', false);
       if (meta.expand) {
-        if (me.land == null) return toast('Claim a starter farm first (plots 1–8).', true);
+        if (me.land == null) return toast('Claim a starter farm first (Farm Lots 1–8).', true);
         if (me.expandLand != null) return toast('You already own an expansion plot.', true);
         return openModal('Buy expansion farm?', () => h('div', { class: 'center' },
           h('div', {}, 'Separate expansion lot — does not touch or change anyone\'s existing crops.'),
-          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 5000) + ' · one expansion lot per player'),
-          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy expansion · ' + money(cat.EXPAND_COST || 5000))));
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 25000) + ' · one expansion lot per player'),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy expansion · ' + money(cat.EXPAND_COST || 25000))));
       }
       if (meta.house) {
-        if (me.land == null) return toast('Claim a farm land first.', true);
+        if (me.land == null) return toast('Claim a farm lot first.', true);
         if (me.houseLand != null) return toast('You already own a house lot.', true);
         return openModal('Buy house lot?', () => h('div', { class: 'center' },
-          h('div', {}, 'Build and decorate a house here — doors, gates, walls, windows, TVs, kitchens & more from the shop.'),
-          h('div', { class: 'muted' }, 'Cost ' + money(cat.HOUSE_COST || 2000) + ' · one house lot per player'),
-          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy house lot · ' + money(cat.HOUSE_COST || 2000))));
+          h('div', {}, 'Build and decorate a house here — doors, gates, walls, windows, TVs, kitchens & more. You can also plant a garden. House lots cannot expand.'),
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.HOUSE_COST || 10000) + ' · one house lot per player'),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Buy house lot · ' + money(cat.HOUSE_COST || 10000))));
       }
       if (me.land != null) return toast('You already own a farm. Buy a house lot (south) or a pricey expansion (east), or expand your farm one square at a time.', true);
-      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This farm is free. You can own one starter farm, then add a house lot and expand later.'),
-        h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Claim this land')));
+      return openModal('Claim Farm Lot ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This farm is free. You can own one starter farm, then add a house lot and expand later.'),
+        h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Claim Farm Lot ' + (hit.i + 1))));
+    }
+    if (L.npc || (WD.lands[hit.i] && WD.lands[hit.i].npc)) {
+      return openModal('Sunny Homes — Model House', () => h('div', { class: 'center' },
+        h('div', {}, 'A fully furnished showcase home. Peek at doors, gates, TVs, kitchens & more for ideas.'),
+        h('div', { class: 'muted' }, 'This lot cannot be claimed. Buy your own house lot nearby!')));
     }
     if (L.owner !== myName) {
       // view others' crop progress (read-only) — never mutate their tiles
       if (hit.lx != null) {
         const tile = L.tiles[hit.lx + ',' + hit.ly];
         if (tile && tile.type === 'plant') return viewOtherCrop(L.owner, tile);
+        if (tile && tile.type === 'furn') return openModal(L.owner + "'s " + ((cat.FURN_BY[tile.id] || {}).name || 'decor'), () => h('div', { class: 'center' }, furnIcon(cat.FURN_BY[tile.id] || { id: 'x', shape: 'stool', v: 0, pal: ['#ccc', '#aaa', '#888'] }), h('div', { class: 'muted' }, 'Looking only.')));
       }
-      return toast(L.owner + "'s land — click a plant to peek at progress, or the land post for harvest stats.", true);
+      return toast(L.owner + "'s place — click plants or decor to peek.", true);
     }
     tileMenu(hit.i, hit.lx, hit.ly);
   }
@@ -612,10 +633,11 @@
       h('div', { class: 'muted' }, 'Stats update when crops are harvested on this land.')));
   }
   function tryBuySquare(wx, wy) {
-    if (me.land == null) return toast('Claim a starter land first.', true);
+    if (me.land == null) return toast('Claim a Farm Lot first.', true);
+    if (me.houseLand != null && landGrid[wy] && landGrid[wy][wx] === me.houseLand) return toast('House lots cannot expand.', true);
     openModal('Buy this square?', () => h('div', { class: 'center' },
-      h('div', {}, 'Expand your starter land by 1 square for ' + money(cat.SQUARE_COST || 140) + '.'),
-      h('div', { class: 'muted' }, 'Must touch your land. Won\'t overwrite other plots, park, or buildings.'),
+      h('div', {}, 'Expand your Farm Lot by 1 square for ' + money(cat.SQUARE_COST || 140) + '.'),
+      h('div', { class: 'muted' }, 'Only starter farms expand. House lots stay fixed.'),
       h('button', { class: 'btn green', onclick: () => { send({ t: 'buy_square', wx, wy }); closeModal(); } }, 'Buy square')));
   }
   function forageBush(bush) {
@@ -631,7 +653,11 @@
         g.append(h('div', { class: 'item' + (own ? ' own' : '') }, h('div', { class: 'nm' }, p.name), h('div', { class: 'muted' }, own ? 'Owned' : money(p.price)),
           own ? null : h('button', { class: 'btn sm green', onclick: () => send({ t: 'buy', kind: 'pet', id: p.id }) }, 'Adopt')));
       });
-      return h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:8px' }, 'Cute companions (cosmetic). Livestock is at the pens to the north.'), g);
+      const stay = h('div', { style: 'margin-top:10px' }, h('div', { class: 'muted' }, 'Where should pets go?'),
+        h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' },
+          [['follow', 'Follow me'], ['farm', 'Stay on farm'], ['house', 'Stay at house']].map(([w, lab]) =>
+            h('button', { class: 'btn sm' + ((me.petStay || 'follow') === w ? ' green' : ''), onclick: () => send({ t: 'set_stay', kind: 'pet', where: w }) }, lab))));
+      return h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:8px' }, 'Pets follow you or stay on your farm/house. Livestock is at the pens.'), g, stay);
     });
   }
   function openPen(kind) {
@@ -652,6 +678,10 @@
         } }, 'Milk (typing game)'));
         box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: kind }) }, 'Process → meat' + (kind === 'sheep' ? ' + wool' : '')));
       }
+      box.append(h('div', { class: 'muted', style: 'margin-top:8px' }, 'Livestock roam your farm or house lot:'));
+      box.append(h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' },
+        [['farm', 'Roam farm'], ['house', 'Roam house']].map(([w, lab]) =>
+          h('button', { class: 'btn sm' + ((me.animalStay || 'farm') === w ? ' green' : ''), onclick: () => send({ t: 'set_stay', kind: 'animal', where: w }) }, lab))));
       box.append(h('div', { class: 'muted' }, 'Sell eggs / milk / wool / meat from your Bag.'));
       return box;
     });
@@ -707,6 +737,105 @@
   }
   const angDiff = (a, b) => { let d = (b - a) % (2 * PI); if (d > PI) d -= 2 * PI; if (d < -PI) d += 2 * PI; return d; };
 
+  // ---------- roaming livestock + following pets ----------
+  const critters = [];
+  function landOriginFor(ownerState, stay) {
+    const li = stay === 'house' ? ownerState.houseLand : (stay === 'farm' ? (ownerState.land != null ? ownerState.land : ownerState.expandLand) : null);
+    if (li == null || !WD.lands[li]) return null;
+    return WD.lands[li];
+  }
+  function ensureCritter(map, key, kind, pet) {
+    let c = map.get(key);
+    if (!c) {
+      c = { key, kind, pet: !!pet, x: 0, z: 0, tx: 0, tz: 0, psi: 0, walk: 0, wait: 0 };
+      map.set(key, c);
+    }
+    return c;
+  }
+  function pickRoamTarget(o) {
+    return { tx: o.x + 0.6 + Math.random() * (LS - 1.2), tz: o.y + 0.6 + Math.random() * (LS - 1.2) };
+  }
+  function updateCritters(dt) {
+    const next = new Map();
+    const owners = [];
+    if (me) owners.push({
+      n: myName, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
+      land: me.land, houseLand: me.houseLand, expandLand: me.expandLand,
+      px: self.x / TILE, pz: self.y / TILE, follow: true,
+    });
+    for (const n in players) {
+      const p = players[n];
+      owners.push({
+        n: p.n, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+        land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
+        px: (p.rx || p.x) / TILE, pz: (p.ry || p.y) / TILE, follow: false,
+      });
+    }
+    const prev = new Map(critters.map(c => [c.key, c]));
+    for (const own of owners) {
+      const aStay = own.animalStay === 'house' ? 'house' : 'farm';
+      const aOrigin = landOriginFor(own, aStay) || landOriginFor(own, 'farm');
+      if (aOrigin) {
+        let ai = 0;
+        for (const kind of ['chicken', 'cow', 'sheep']) {
+          const n = Math.min(own.animals[kind] || 0, kind === 'cow' ? 4 : kind === 'sheep' ? 6 : 8);
+          for (let i = 0; i < n; i++, ai++) {
+            const key = own.n + ':a:' + kind + ':' + i;
+            const c = ensureCritter(prev, key, kind, false);
+            next.set(key, c);
+            if (!c.tx) { const t = pickRoamTarget(aOrigin); c.x = t.tx; c.z = t.tz; c.tx = t.tx; c.tz = t.tz; }
+            // keep inside current lot
+            c._ox = aOrigin.x; c._oy = aOrigin.y; c._roam = true;
+          }
+        }
+      }
+      const pets = own.pets || [];
+      pets.forEach((pid, i) => {
+        const key = own.n + ':p:' + pid;
+        const c = ensureCritter(prev, key, pid, true);
+        next.set(key, c);
+        if (own.petStay === 'follow') {
+          c._follow = true; c._fx = own.px; c._fz = own.pz; c._fi = i; c._roam = false;
+        } else {
+          const pStay = own.petStay === 'house' ? 'house' : 'farm';
+          const o = landOriginFor(own, pStay) || landOriginFor(own, 'farm');
+          if (o) { c._ox = o.x; c._oy = o.y; c._roam = true; c._follow = false; if (!c.tx) { const t = pickRoamTarget(o); c.x = t.tx; c.z = t.tz; c.tx = t.tx; c.tz = t.tz; } }
+        }
+      });
+    }
+    critters.length = 0;
+    for (const c of next.values()) {
+      if (c._follow) {
+        const ang = (c._fi || 0) * 1.7;
+        const tx = c._fx - Math.sin(ang) * (0.55 + (c._fi || 0) * 0.15);
+        const tz = c._fz - Math.cos(ang) * (0.55 + (c._fi || 0) * 0.15);
+        const dx = tx - c.x, dz = tz - c.z, dist = Math.hypot(dx, dz);
+        if (dist > 0.08) {
+          const sp = Math.min(2.8, 1.2 + dist) * dt;
+          c.x += dx / dist * sp; c.z += dz / dist * sp;
+          c.psi += angDiff(c.psi, Math.atan2(dx, dz)) * Math.min(1, dt * 10);
+          c.walk += dt * 10;
+        }
+      } else if (c._roam && c._ox != null) {
+        c.wait -= dt;
+        const dx = c.tx - c.x, dz = c.tz - c.z, dist = Math.hypot(dx, dz);
+        if (dist < 0.12 || c.wait < 0) {
+          if (dist < 0.12) c.wait = 0.6 + Math.random() * 2.2;
+          const t = pickRoamTarget({ x: c._ox, y: c._oy });
+          c.tx = t.tx; c.tz = t.tz;
+        } else {
+          const sp = (c.kind === 'cow' ? 0.55 : c.pet ? 0.9 : 0.75) * dt;
+          c.x += dx / dist * sp; c.z += dz / dist * sp;
+          c.psi += angDiff(c.psi, Math.atan2(dx, dz)) * Math.min(1, dt * 8);
+          c.walk += dt * 8;
+        }
+        c.x = Math.max(c._ox + .3, Math.min(c._ox + LS - .3, c.x));
+        c.z = Math.max(c._oy + .3, Math.min(c._oy + LS - .3, c.z));
+      }
+      critters.push(c);
+    }
+  }
+
   let last = performance.now();
   function frame(tNow) {
     requestAnimationFrame(frame);
@@ -752,17 +881,24 @@
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
     for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) {
       const chk = (tx + tz) & 1; let col;
+      const li = landGrid[tz][tx];
+      const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
       if (inPark(tx, tz)) col = chk ? '#8fdc7a' : '#7bc96a';
-      else if (landGrid[tz][tx] >= 0) col = chk ? '#a5d96f' : '#9bd166';
+      else if (houseFloor) col = chk ? '#e6d3a8' : '#d9c28f'; // warm wood / house flooring
+      else if (li >= 0) col = chk ? '#a5d96f' : '#9bd166';
       else if (isMargin(tx, tz)) col = chk ? '#6fbd5e' : '#68b657';
       else col = chk ? '#d9d4c3' : '#cfcab8';
       view.quad(tx, tz, tx + 1, tz + 1, 0, col, col);
     }
-    // land floors: soil under plants, faint grid on my land (incl. extra squares), hover highlight
+    // land floors: soil under plants, house planks, faint grid on my land
     const fpsi = fpsiFor(view.yaw);
     lands.forEach((L, i) => {
-      const o = WD.lands[i], mine = L.owner && L.owner === myName;
-      if (mine) {
+      const o = WD.lands[i], meta = WD.lands[i] || {}, mine = L.owner && L.owner === myName;
+      if (meta.house) {
+        for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) {
+          view.quad(o.x + lx + .06, o.y + ly + .06, o.x + lx + .94, o.y + ly + .94, 0, (lx + ly) & 1 ? 'rgba(140,100,50,.22)' : 'rgba(110,75,35,.18)');
+        }
+      } else if (mine) {
         for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.16)');
         for (const k of Object.keys(L.extra || {})) {
           const [lx, ly] = k.split(',').map(Number);
@@ -811,21 +947,30 @@
       view.add(Vox.charBoxes(p.a, cat, p.walk, mv), p.rx / TILE, 0, p.ry / TILE, p.psi, .8); list.push(p);
     }
     view.add(Vox.charBoxes(me.avatar, cat, self.walk, moving), self.x / TILE, 0, self.y / TILE, self.psi, .8);
+    updateCritters(dt);
+    for (const c of critters) {
+      const B = c.pet ? Vox.petBoxes(c.kind) : Vox.animalBoxes(c.kind);
+      view.add(B, c.x, 0, c.z, c.psi, c.pet ? .7 : (c.kind === 'cow' ? 1.1 : .85));
+    }
     view.flush();
 
     // labels (crisp text on a full-resolution overlay)
     WD.lands.forEach((o, i) => {
-      const L = lands[i], mid = [[o.x + 4, o.y], [o.x + 4, o.y + LS], [o.x, o.y + 4], [o.x + LS, o.y + 4]];
+      const L = lands[i]; if (!L) return;
+      const mid = [[o.x + 4, o.y], [o.x + 4, o.y + LS], [o.x, o.y + 4], [o.x + LS, o.y + 4]];
       let far = null; for (const [mx, mz] of mid) { const s = toPage(mx, 0, mz); if (!far || s[2] > far[2]) far = s; }
       if (far[0] < -100 || far[0] > vw + 100 || far[1] < -50 || far[1] > vh + 50) return;
       const meta = WD.lands[i] || {};
-      const label = L.owner
-        ? (L.owner + (meta.house ? "'s house" : "'s land"))
-        : (meta.expand ? 'Expansion · ' + money(cat.EXPAND_COST || 5000)
-          : meta.house ? 'House lot · ' + money(cat.HOUSE_COST || 2000)
-            : 'Land ' + (i + 1) + ' — FOR CLAIM');
+      const farmIdx = (!meta.expand && !meta.house) ? (i + 1) : null;
+      const label = meta.npc || L.npc
+        ? 'Model Home · Sunny Homes'
+        : L.owner
+          ? (L.owner + (meta.house ? "'s house" : "'s farm"))
+          : (meta.expand ? 'Expansion Farm · ' + money(cat.EXPAND_COST || 25000)
+            : meta.house ? 'House Lot · ' + money(cat.HOUSE_COST || 10000)
+              : 'Farm Lot ' + farmIdx + ' — FOR CLAIM');
       lctx.font = 'bold 13px Trebuchet MS'; const w = lctx.measureText(label).width + 18;
-      lctx.fillStyle = L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : (meta.expand ? '#d0ebff' : meta.house ? '#ffe0c7' : '#ffd1c9'); lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
+      lctx.fillStyle = (meta.npc || L.npc) ? '#ffd8a8' : L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : (meta.expand ? '#d0ebff' : meta.house ? '#ffe0c7' : '#ffd1c9'); lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
       lctx.beginPath(); lctx.roundRect(far[0] - w / 2, far[1] - 30, w, 20, 6); lctx.fill(); lctx.stroke();
       lctx.fillStyle = '#3b2a1a'; lctx.textAlign = 'center'; lctx.fillText(label, far[0], far[1] - 16); lctx.textAlign = 'left';
     });
@@ -840,8 +985,8 @@
     for (const p of list) { const s = toPage(p.rx / TILE, 1.7, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
-    let hint = 'WASD · stalls (5 mini-games) · park slides · land posts · Enter chat';
-    if (me.land == null) hint = 'Claim a starter land (1–8) · expansion lots are separate on the right';
+    let hint = 'WASD · stalls · park · pets follow / animals roam · Enter chat';
+    if (me.land == null) hint = 'Claim a Farm Lot (1–8) · house lots south · expansion east';
     else if (hoverTile) {
       if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name;
       else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
@@ -849,14 +994,15 @@
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
       else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';
       else if (hoverTile.post != null) hint = 'Click: Land post — harvest stats';
-      else if (hoverTile.buySquare) hint = 'Click: buy this square for ' + money(cat.SQUARE_COST || 140);
+      else if (hoverTile.buySquare) hint = 'Click: buy this farm square for ' + money(cat.SQUARE_COST || 140);
       else if (hoverTile.i != null && lands[hoverTile.i]) {
         const L = lands[hoverTile.i];
         const meta = WD.lands[hoverTile.i] || {};
-        hint = L.owner === myName
-          ? (meta.house ? 'Click: place doors, gates, TVs & house decor' : 'Click: plant, decorate, or harvest · edge tiles expand land')
-          : L.owner ? 'Click plants or the land post'
-            : (meta.expand ? 'Pricey expansion farm' : meta.house ? 'House-building lot' : 'Unclaimed farm');
+        hint = (meta.npc || L.npc) ? 'Model home showcase'
+          : L.owner === myName
+            ? (meta.house ? 'Click: plant or decorate house (not expandable)' : 'Click: plant, decorate, harvest · edge expands farm')
+            : L.owner ? 'Click plants, decor, or the land post'
+              : (meta.expand ? 'Expansion farm · ' + money(cat.EXPAND_COST || 25000) : meta.house ? 'House lot · ' + money(cat.HOUSE_COST || 10000) : 'Unclaimed Farm Lot');
       }
     }
     $('#hint').textContent = hint; $('#hint').style.display = modalOpen() ? 'none' : '';

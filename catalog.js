@@ -160,8 +160,8 @@ const DEFAULT_AVATAR = {
 const LAND_SIZE = 8;
 const LAND_GAP = 5; // empty tiles between neighboring starter plots
 const LAND_STRIDE = LAND_SIZE + LAND_GAP; // 13
-const EXPAND_COST = 5000; // separate expansion farm plots
-const HOUSE_COST = 2000;  // dedicated house-building lots
+const EXPAND_COST = 25000; // separate expansion farm plots
+const HOUSE_COST = 10000;  // dedicated house-building lots
 const SQUARE_COST = 140; // buy one extra tile around your starter land
 const SQUARE_MAX = 20;   // max bought squares per starter land
 const TAP_MIN = 0.1;     // plant-care tap earnings while growing
@@ -169,8 +169,8 @@ const TAP_MAX = 0.5;
 const WORLD = {
   tile: 48,
   landSize: LAND_SIZE,
-  // 8 farm + 4 expansion + 8 house lots (indices 0–7 forever farm starters)
-  landCount: 20,
+  // 8 farm + 4 expansion + 8 house + 1 NPC model home (indices 0–7 forever farm starters)
+  landCount: 21,
   width: 72,
   height: 58,
   lands: [],
@@ -212,7 +212,7 @@ WORLD.lands.push(
   { x: 60, y: 30, expand: true },
   { x: 60, y: 44, expand: true },
 );
-// House-building lots (12–19) — south of the farm grid
+// House-building lots (12–19) — south of the farm grid (not expandable)
 for (let i = 0; i < 8; i++) {
   WORLD.lands.push({
     x: 2 + (i % 4) * LAND_STRIDE,
@@ -220,6 +220,25 @@ for (let i = 0; i < 8; i++) {
     house: true,
   });
 }
+// NPC model home (20) — fully furnished showcase next to house lots
+WORLD.lands.push({ x: 54, y: 32, house: true, npc: true });
+
+// Furniture layout for the NPC model home (relative tiles)
+const NPC_HOME_FURN = [
+  ['0,0', 'wall_0'], ['1,0', 'wall_0'], ['2,0', 'window_2'], ['3,0', 'wall_0'], ['4,0', 'door_1'], ['5,0', 'wall_0'], ['6,0', 'window_0'], ['7,0', 'wall_0'],
+  ['0,1', 'wall_0'], ['7,1', 'wall_0'],
+  ['0,2', 'wall_0'], ['7,2', 'window_1'],
+  ['0,3', 'wall_0'], ['7,3', 'wall_0'],
+  ['0,7', 'hedge_0'], ['1,7', 'gate_3'], ['2,7', 'hedge_0'], ['5,7', 'hedge_1'], ['6,7', 'hedge_0'], ['7,7', 'hedge_0'],
+  ['1,1', 'bed_3'], ['2,1', 'wardrobe_1'], ['3,1', 'lamp_3'],
+  ['5,1', 'bookshelf_2'], ['6,1', 'desk_3'],
+  ['1,3', 'sofa_2'], ['2,3', 'rug_1'], ['3,3', 'tv_3'], ['4,3', 'table_2'],
+  ['1,5', 'fridge_0'], ['2,5', 'stove_2'], ['3,5', 'counter_0'], ['4,5', 'sink_2'],
+  ['6,5', 'toilet_0'], ['6,4', 'mirror_2'],
+  ['5,6', 'plantpot_1'], ['2,6', 'clock_3'], ['4,1', 'chest_2'],
+  ['3,2', 'piano_3'], ['6,2', 'aquarium_1'], ['1,6', 'fireplace_1'],
+  ['7,6', 'mailbox_3'], ['0,6', 'statue_3'], ['4,6', 'fountain_2'],
+];
 
 // Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
 const RARE_FURN = [
@@ -269,7 +288,7 @@ const MINIGAMES = {
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
   GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_MAX,
-  TAP_MIN, TAP_MAX,
+  TAP_MIN, TAP_MAX, NPC_HOME_FURN,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),

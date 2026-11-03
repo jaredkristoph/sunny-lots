@@ -31,6 +31,22 @@ function ensureLands() {
   }
 }
 ensureLands();
+function ensureNpcHouse() {
+  const idx = C.WORLD.lands.findIndex(l => l.npc);
+  if (idx < 0) return;
+  const L = db.lands[idx];
+  if (!L) return;
+  L.owner = '__npc__';
+  if (L.npcReady) return;
+  L.tiles = {};
+  for (const [k, id] of (C.NPC_HOME_FURN || [])) {
+    if (C.FURN_BY[id]) L.tiles[k] = { type: 'furn', id };
+  }
+  L.npcReady = true;
+  L.stats = { harvested: 0, growTime: 0, value: 0 };
+  touch();
+}
+ensureNpcHouse();
 function landFootprint(i) {
   const meta = C.WORLD.lands[i]; if (!meta) return new Set();
   const set = new Set();
@@ -65,6 +81,8 @@ function ensureUser(u) {
   if (!u.animalAt) u.animalAt = { egg: 0, milkCow: 0, milkSheep: 0 };
   if (u.expandLand === undefined) u.expandLand = null;
   if (u.houseLand === undefined) u.houseLand = null;
+  if (!u.animalStay) u.animalStay = 'farm'; // farm | house
+  if (!u.petStay) u.petStay = 'follow'; // follow | farm | house
   if (!u.seeds) u.seeds = {};
   if (!u.crops) u.crops = {};
   if (!u.furniture) u.furniture = {};
@@ -92,6 +110,7 @@ async function loadFromUpstash() {
   if (raw) db = Object.assign(db, JSON.parse(raw));
   ensureLands();
   for (const u of Object.values(db.users)) ensureUser(u);
+  ensureNpcHouse();
 }
 let saving = false;
 async function save() {
@@ -197,16 +216,22 @@ const meView = u => ({
   name: u.name, money: u.money, seeds: u.seeds, crops: u.crops, furniture: u.furniture,
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
+  animalStay: u.animalStay, petStay: u.petStay,
   stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt,
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
-const playerList = () => [...online.values()].map(c => ({ n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar }));
+const playerList = () => [...online.values()].map(c => ({
+  n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
+  animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay,
+  land: c.u.land, houseLand: c.u.houseLand, expandLand: c.u.expandLand,
+}));
 const landView = l => ({
-  owner: l.owner ? db.users[l.owner].name : null,
+  owner: l.owner === '__npc__' ? 'Sunny Homes' : (l.owner && db.users[l.owner] ? db.users[l.owner].name : null),
   tiles: l.tiles,
   extra: l.extra || {},
   stats: l.stats || { harvested: 0, growTime: 0, value: 0 },
+  npc: l.owner === '__npc__',
 });
 const growMs = seed => seed.hours * 3600000 / SPEED;
 const ownsCloth = (u, id) => {
@@ -285,11 +310,25 @@ wss.on('connection', ws => {
         broadcast(msg);
         break;
       }
+      case 'set_stay': {
+        if (m.kind === 'animal' && (m.where === 'farm' || m.where === 'house')) {
+          if (m.where === 'house' && u.houseLand == null) return err('Buy a house lot first.');
+          u.animalStay = m.where; touch(); sendMe(c); playersDirty = true;
+          ok('Livestock will roam your ' + m.where + '.');
+        } else if (m.kind === 'pet' && (m.where === 'follow' || m.where === 'farm' || m.where === 'house')) {
+          if (m.where === 'house' && u.houseLand == null) return err('Buy a house lot first.');
+          if (m.where === 'farm' && u.land == null) return err('Claim a farm first.');
+          u.petStay = m.where; touch(); sendMe(c); playersDirty = true;
+          ok(m.where === 'follow' ? 'Pets will follow you.' : 'Pets will stay on your ' + m.where + '.');
+        }
+        break;
+      }
       case 'claim': {
         const i = m.land;
         if (!Number.isInteger(i) || i < 0 || i >= db.lands.length) return;
         if (db.lands[i].owner) return err('That land is already claimed.');
         const meta = C.WORLD.lands[i] || {};
+        if (meta.npc) return err('That is the model home — look, don\'t claim!');
         if (meta.expand) {
           if (u.land == null) return err('Claim a starter land first (the original 8 plots).');
           if (u.expandLand != null) return err('You already own an expansion plot.');
@@ -440,10 +479,12 @@ wss.on('connection', ws => {
           if (u.money < a.buy) return err('Not enough money.');
           u.money -= a.buy; u.animals[m.id] = (u.animals[m.id] || 0) + 1;
           if (m.id === 'chicken' && !u.animalAt.egg) u.animalAt.egg = Date.now();
+          playersDirty = true;
         } else if (m.kind === 'pet') {
           const p = C.PET_BY[m.id]; if (!p || u.pets.includes(p.id)) return;
           if (u.money < p.price) return err('Not enough money.');
           u.money -= p.price; u.pets.push(p.id);
+          playersDirty = true;
         } else return;
         touch(); sendMe(c);
         break;
@@ -537,7 +578,7 @@ wss.on('connection', ws => {
         const meatN = kind === 'chicken' ? 1 : 2;
         addProduct('meat', meatN);
         if (kind === 'sheep') addProduct('wool', 1);
-        touch(); sendMe(c);
+        touch(); sendMe(c); playersDirty = true;
         ok('Processed 1 ' + a.name.toLowerCase() + ' → meat' + (kind === 'sheep' ? ' + wool' : ''));
         break;
       }
