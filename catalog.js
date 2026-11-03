@@ -6,7 +6,12 @@
 // ---------------------------------------------------------------
 
 // id, name, buy cost, sell price, grow hours, art kind, color1, color2, variant
+// 5/60 ≈ 0.0833 hours = 5 real minutes
 const SEEDS = [
+  ['sprout', 'Quick Sprout', 15, 28, 5 / 60, 'leafy', '#b2f2bb', '#51cf66', 0],
+  ['pea', 'Sugar Pea', 20, 38, 5 / 60, 'bushfruit', '#94d82d', '#2f9e44', 2],
+  ['herb', 'Garden Herb', 25, 48, 5 / 60, 'leafy', '#69db7c', '#2b8a3e', 1],
+  ['scallion', 'Scallion', 30, 55, 5 / 60, 'stalk', '#ffd43b', '#37b24d', 0],
   ['radish', 'Radish', 40, 100, 0.5, 'root', '#e23a5f', '#3fa34d', 0],
   ['carrot', 'Carrot', 70, 170, 1, 'root', '#f08a1c', '#3fa34d', 1],
   ['lettuce', 'Lettuce', 100, 250, 2, 'leafy', '#9be564', '#4fa83a', 0],
