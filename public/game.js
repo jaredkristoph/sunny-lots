@@ -2,6 +2,10 @@
 (async function () {
   const $ = s => document.querySelector(s);
   const cat = await (await fetch('/api/catalog')).json();
+  cat.FURNITURE_SHOP = cat.FURNITURE;
+  cat.CLOTHES_SHOP = cat.CLOTHES;
+  cat.FURNITURE = cat.ALL_FURNITURE || cat.FURNITURE;
+  cat.CLOTHES = cat.ALL_CLOTHES || cat.CLOTHES;
   cat.SEED_BY = Object.fromEntries(cat.SEEDS.map(s => [s.id, s]));
   cat.FURN_BY = Object.fromEntries(cat.FURNITURE.map(s => [s.id, s]));
   cat.CLOTH = Object.fromEntries(cat.CLOTHES.map(s => [s.id, s]));
@@ -9,6 +13,8 @@
   const money = n => '$' + Number(n).toLocaleString();
   const PI = Math.PI;
   const fpsiFor = yaw => Math.floor((yaw + PI) / (PI / 2) + .5) * PI / 2;   // furniture always faces the camera (snapped to 90°)
+  const nearPt = (x, y, tx, ty, r) => Math.hypot(x / TILE - tx, y / TILE - ty) < (r || 2.2);
+  const nearRect = (x, y, r) => x / TILE > r.x - .5 && x / TILE < r.x + r.w + .5 && y / TILE > r.y - .5 && y / TILE < r.y + r.h + .5;
 
   function h(tag, props, ...kids) {
     const e = document.createElement(tag);
@@ -215,8 +221,14 @@
       const sec = (title, rows) => { b.append(h('b', {}, title)); b.append(rows.length ? h('div', { class: 'list', style: 'margin:6px 0 12px' }, rows) : h('div', { class: 'muted', style: 'margin:4px 0 12px' }, 'Nothing yet')); };
       sec('Seeds', Object.entries(me.seeds).map(([id, n]) => { const sd = cat.SEED_BY[id]; return h('div', { class: 'lrow' }, plantIcon(sd, false), h('div', { class: 'grow' }, h('b', {}, sd.name), h('div', { class: 'muted' }, 'Grows in ' + fmtHours(sd.hours))), '×' + n); }));
       sec('Harvested crops', Object.entries(me.crops).map(([k, n]) => { const gold = k.endsWith('_gold'), sd = cat.SEED_BY[k.replace('_gold', '')]; return h('div', { class: 'lrow' }, plantIcon(sd, gold), h('div', { class: 'grow' }, h('b', { class: gold ? 'gold' : '' }, (gold ? '✨ Golden ' : '') + sd.name), h('div', { class: 'muted' }, money(sd.sell * (gold ? cat.GOLD_MULT : 1)) + ' each')), '×' + n); }));
-      sec('Furniture', Object.entries(me.furniture).map(([id, n]) => { const f = cat.FURN_BY[id]; return h('div', { class: 'lrow' }, furnIcon(f), h('div', { class: 'grow' }, h('b', {}, f.name)), '×' + n); }));
-      b.append(h('div', { class: 'muted' }, 'Sell crops at the shop. Place furniture by clicking an empty tile on your land.'));
+      sec('Furniture', Object.entries(me.furniture).map(([id, n]) => { const f = cat.FURN_BY[id]; if (!f) return null; return h('div', { class: 'lrow' }, furnIcon(f), h('div', { class: 'grow' }, h('b', {}, f.name + (f.buyable === false ? ' ✨' : ''))), '×' + n); }).filter(Boolean));
+      sec('Products', Object.entries(me.products || {}).map(([id, n]) => {
+        const p = (cat.PRODUCTS || {})[id]; if (!p) return null;
+        return h('div', { class: 'lrow' }, h('div', { class: 'grow' }, h('b', {}, p.name), h('div', { class: 'muted' }, money(p.sell) + ' each')),
+          '×' + n, h('button', { class: 'btn sm green', onclick: () => send({ t: 'sell', kind: 'product', id, qty: 'all' }) }, 'Sell'));
+      }).filter(Boolean));
+      if ((me.pets || []).length) sec('Pets', me.pets.map(id => { const p = (cat.PETS || []).find(x => x.id === id); return h('div', { class: 'lrow' }, h('b', {}, p ? p.name : id)); }));
+      b.append(h('div', { class: 'muted' }, 'Sell crops/products at the shop. Side stalls = mini-games. Bushes can drop exclusive decor (~5%).'));
       return b;
     });
   }
@@ -229,10 +241,11 @@
     let tab = 'sell', fShape = 'all', cSlot = 'all';
     openModal('🏪 Sunny Shop', () => {
       const b = h('div', {}, h('div', { style: 'margin-bottom:8px;font-weight:700' }, '💰 ' + money(me.money)),
-        tabs([['sell', 'Sell crops'], ['seeds', 'Seeds'], ['furn', 'Furniture'], ['cloth', 'Clothes']], tab, t => { tab = t; }));
+        tabs([['sell', 'Sell'], ['seeds', 'Seeds'], ['furn', 'Furniture'], ['cloth', 'Clothes']], tab, t => { tab = t; }));
       if (tab === 'sell') {
         const ent = Object.entries(me.crops);
-        if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no crops to sell. Plant some seeds and come back when they are ready!')); return b; }
+        const prod = Object.entries(me.products || {});
+        if (!ent.length && !prod.length) { b.append(h('div', { class: 'muted' }, 'Nothing to sell yet — harvest crops or collect animal products.')); return b; }
         let total = 0;
         const list = h('div', { class: 'list' });
         ent.forEach(([k, n]) => {
@@ -240,7 +253,14 @@
           list.append(h('div', { class: 'lrow' }, plantIcon(sd, gold), h('div', { class: 'grow' }, h('b', { class: gold ? 'gold' : '' }, (gold ? '✨ Golden ' : '') + sd.name), h('div', { class: 'muted' }, money(each) + ' each · you have ' + n)),
             h('button', { class: 'btn sm', onclick: () => send({ t: 'sell', key: k, qty: 1 }) }, 'Sell 1'), h('button', { class: 'btn sm green', onclick: () => send({ t: 'sell', key: k, qty: 'all' }) }, 'Sell all ' + money(each * n))));
         });
-        b.append(list, h('button', { class: 'btn green', onclick: () => send({ t: 'sell', key: '*' }) }, 'Sell everything — ' + money(total)));
+        prod.forEach(([id, n]) => {
+          const p = (cat.PRODUCTS || {})[id]; if (!p) return;
+          total += p.sell * n;
+          list.append(h('div', { class: 'lrow' }, h('div', { class: 'grow' }, h('b', {}, p.name), h('div', { class: 'muted' }, money(p.sell) + ' each · ' + n)),
+            h('button', { class: 'btn sm green', onclick: () => send({ t: 'sell', kind: 'product', id, qty: 'all' }) }, 'Sell all')));
+        });
+        b.append(list);
+        if (ent.length) b.append(h('button', { class: 'btn green', onclick: () => send({ t: 'sell', key: '*' }) }, 'Sell all crops — ' + money(total)));
       } else if (tab === 'seeds') {
         const g = h('div', { class: 'grid' });
         cat.SEEDS.forEach(sd => g.append(h('div', { class: 'item' }, plantIcon(sd, false), h('div', { class: 'nm' }, sd.name), h('div', { class: 'muted' }, 'Grows ' + fmtHours(sd.hours) + ' · sells ' + money(sd.sell)), h('div', { class: 'muted' }, 'Have ' + (me.seeds[sd.id] || 0)),
@@ -249,12 +269,12 @@
       } else if (tab === 'furn') {
         const sel = h('select', { onchange: e => { fShape = e.target.value; modalRefresh(); } }, h('option', { value: 'all' }, 'All types'), cat.SHAPE_IDS.map(s => h('option', { value: s, selected: s === fShape }, s)));
         const g = h('div', { class: 'grid' });
-        cat.FURNITURE.filter(f => fShape === 'all' || f.shape === fShape).forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, 'Have ' + (me.furniture[f.id] || 0)), h('button', { class: 'btn sm', disabled: me.money < f.price, onclick: () => send({ t: 'buy', kind: 'furn', id: f.id, qty: 1 }) }, money(f.price)))));
+        (cat.FURNITURE_SHOP || []).filter(f => fShape === 'all' || f.shape === fShape).forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, 'Have ' + (me.furniture[f.id] || 0)), h('button', { class: 'btn sm', disabled: me.money < f.price, onclick: () => send({ t: 'buy', kind: 'furn', id: f.id, qty: 1 }) }, money(f.price)))));
         b.append(h('div', { style: 'margin-bottom:8px' }, sel), g);
       } else {
         const sel = h('select', { onchange: e => { cSlot = e.target.value; modalRefresh(); } }, [['all', 'All'], ['top', 'Tops'], ['bottom', 'Bottoms'], ['hat', 'Hats'], ['shoes', 'Shoes']].map(([v, l]) => h('option', { value: v, selected: v === cSlot }, l)));
         const g = h('div', { class: 'grid' });
-        cat.CLOTHES.filter(c => c.price > 0 && (cSlot === 'all' || c.slot === cSlot)).forEach(it => g.append(h('div', { class: 'item' + (owns(it) ? ' own' : '') }, clothIcon(it), h('div', { class: 'nm' }, it.name),
+        (cat.CLOTHES_SHOP || []).filter(c => c.price > 0 && c.buyable !== false && (cSlot === 'all' || c.slot === cSlot)).forEach(it => g.append(h('div', { class: 'item' + (owns(it) ? ' own' : '') }, clothIcon(it), h('div', { class: 'nm' }, it.name),
           owns(it) ? h('div', { class: 'muted' }, 'Owned ✓') : h('button', { class: 'btn sm', disabled: me.money < it.price, onclick: () => send({ t: 'buy', kind: 'cloth', id: it.id }) }, money(it.price)))));
         b.append(h('div', { style: 'margin-bottom:8px' }, sel), g, h('div', { class: 'muted', style: 'margin-top:8px' }, 'Wear what you buy from the 👕 Wardrobe.'));
       }
@@ -329,18 +349,36 @@
     piece(Vox.plantBoxes(cat.SEED_BY.pumpkin, 3, false), S.x - .5, S.y + S.h + .1, .6);
     piece(Vox.plantBoxes(cat.SEED_BY.sunflower, 3, false), S.x + S.w + .5, S.y + S.h + .1, .6);
   })();
+  (function buildPOIs() {
+    for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
+    for (const [id, p] of Object.entries(WD.pens || {})) {
+      piece(Vox.penFence(p.w - .4, p.h - .4), p.x + p.w / 2, p.y + p.h / 2, Math.max(p.w, p.h));
+      piece(Vox.animalBoxes(id), p.x + p.w / 2, p.y + p.h / 2, 1.2);
+    }
+    if (WD.petShop) {
+      const P = WD.petShop;
+      piece(Vox.shopBox(P.w - .2, 1.4, P.h - .2, '#7048a8'), P.x + P.w / 2, P.y + P.h / 2, 2);
+    }
+    for (const b of (WD.bushes || [])) piece(Vox.bushBoxes(), b.x, b.y, .9);
+  })();
 
   // ---------- picking ----------
   function plantH(tile) { return [.25, .35, .7, 1][Vox.plantStage((now() - tile.at) / growMs(cat.SEED_BY[tile.seed]))]; }
   function pickAt(bx, by) {
     // shop (tall building): test a few heights
     for (const Y of [.3, 1, 1.6]) { const g = view.pick(bx, by, Y); if (g.x > WD.shop.x - .05 && g.x < WD.shop.x + WD.shop.w + .05 && g.z > WD.shop.y - .05 && g.z < WD.shop.y + WD.shop.h + .05) return { shop: true }; }
+    const g0 = view.pick(bx, by, 0);
+    // POIs (stalls / pens / pet shop / bushes)
+    for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
+    if (WD.petShop && g0.x > WD.petShop.x && g0.x < WD.petShop.x + WD.petShop.w && g0.z > WD.petShop.y && g0.z < WD.petShop.y + WD.petShop.h) return { petShop: true };
+    for (const [id, p] of Object.entries(WD.pens || {})) if (g0.x > p.x && g0.x < p.x + p.w && g0.z > p.y && g0.z < p.y + p.h) return { pen: id };
+    for (const b of (WD.bushes || [])) if (Math.hypot(g0.x - b.x, g0.z - b.y) < 1.1) return { bush: b };
     let best = null;
     for (let i = 0; i < lands.length; i++) {
       const o = WD.lands[i], L = lands[i];
       for (const k in L.tiles) {
         const tile = L.tiles[k], [lx, ly] = k.split(',').map(Number), wx = o.x + lx + .5, wz = o.y + ly + .5;
-        const H = tile.type === 'furn' ? Vox.furnModel(cat.FURN_BY[tile.id]).h : plantH(tile);
+        const H = tile.type === 'furn' ? (Vox.furnModel(cat.FURN_BY[tile.id] || { shape: 'stool', v: 0, pal: ['#ccc', '#aaa', '#888'] }).h) : plantH(tile);
         let mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
         for (const [a, y, b] of [[-.4, 0, -.4], [.4, 0, -.4], [.4, 0, .4], [-.4, 0, .4], [-.4, H, -.4], [.4, H, -.4], [.4, H, .4], [-.4, H, .4]]) { const s = view.toScreen(wx + a, y, wz + b); mnx = Math.min(mnx, s[0]); mxx = Math.max(mxx, s[0]); mny = Math.min(mny, s[1]); mxy = Math.max(mxy, s[1]); }
         if (bx >= mnx && bx <= mxx && by >= mny && by <= mxy) { const d = view.toScreen(wx, 0, wz)[2]; if (!best || d < best.d) best = { i, lx, ly, d }; }
@@ -354,26 +392,61 @@
     const [bx, by] = toBuf(cx, cy), hit = pickAt(bx, by);
     if (!hit) return;
     if (hit.shop) return tryShop();
+    if (hit.stall) return openStall(hit.stall);
+    if (hit.petShop) return openPetShop();
+    if (hit.pen) return openPen(hit.pen);
+    if (hit.bush) return forageBush(hit.bush);
     const L = lands[hit.i];
     if (!L.owner) {
-      if (me.land != null) return toast('You already own Land ' + (me.land + 1) + '.', true);
-      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This land is free. You can own one land, and only you can plant or decorate on it.'),
+      const expand = !!(WD.lands[hit.i] && WD.lands[hit.i].expand);
+      if (expand) {
+        if (me.land == null) return toast('Claim a starter land first (plots 1–8).', true);
+        if (me.expandLand != null) return toast('You already own an expansion plot.', true);
+        return openModal('Buy expansion plot?', () => h('div', { class: 'center' },
+          h('div', {}, 'Extra land on the east strip. Does not move or change anyone\'s existing crops.'),
+          h('div', { class: 'muted' }, 'Cost ' + money(cat.EXPAND_COST || 800)),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Expand for ' + money(cat.EXPAND_COST || 800))));
+      }
+      if (me.land != null) return toast('You already own a starter land. Expansion plots are on the right side.', true);
+      return openModal('Claim Land ' + (hit.i + 1) + '?', () => h('div', { class: 'center' }, h('div', {}, 'This land is free. You can own one starter land, and only you can plant or decorate on it.'),
         h('button', { class: 'btn green', onclick: () => { send({ t: 'claim', land: hit.i }); closeModal(); } }, 'Claim this land')));
     }
-    if (L.owner !== myName) return toast('This is ' + L.owner + "'s land.", true);
-    tileMenu(hit.lx, hit.ly);
+    if (L.owner !== myName) {
+      // view others' crop progress (read-only) — never mutate their tiles
+      if (hit.lx != null) {
+        const tile = L.tiles[hit.lx + ',' + hit.ly];
+        if (tile && tile.type === 'plant') return viewOtherCrop(L.owner, tile);
+      }
+      return toast(L.owner + "'s land — click a plant to peek at progress.", true);
+    }
+    tileMenu(hit.i, hit.lx, hit.ly);
+  }
+  function viewOtherCrop(owner, tile) {
+    const sd = cat.SEED_BY[tile.seed]; if (!sd) return;
+    const total = growMs(sd);
+    openModal(owner + "'s " + sd.name, () => {
+      const bar = h('div', { style: 'width:100%;height:100%' });
+      const left = h('div', { style: 'font-size:20px;font-weight:700' });
+      const upd = () => {
+        const p = Math.min(1, (now() - tile.at) / total);
+        bar.style.width = (p * 100) + '%';
+        left.textContent = p >= 1 ? 'Ready to harvest!' : fmtLeft(tile.at + total - now()) + ' left';
+      };
+      upd(); const iv = setInterval(upd, 500); modalClose = () => clearInterval(iv);
+      return h('div', { class: 'center' }, plantIcon(sd, !!tile.gold), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'Looking only — you cannot harvest their crops.'));
+    });
   }
 
   // ---------- land tile menus ----------
-  function tileMenu(tx, ty) {
-    const key = tx + ',' + ty, tile = lands[me.land].tiles[key];
-    if (!tile) return plantMenu(tx, ty);
+  function tileMenu(land, tx, ty) {
+    const key = tx + ',' + ty, tile = lands[land].tiles[key];
+    if (!tile) return plantMenu(land, tx, ty);
     if (tile.type === 'furn') {
       const f = cat.FURN_BY[tile.id];
-      return openModal(f.name, () => h('div', { class: 'center' }, furnIcon(f), h('button', { class: 'btn', onclick: () => { send({ t: 'pickup', tx, ty }); closeModal(); } }, 'Pick up (back to bag)')));
+      return openModal(f.name, () => h('div', { class: 'center' }, furnIcon(f), h('button', { class: 'btn', onclick: () => { send({ t: 'pickup', land, tx, ty }); closeModal(); } }, 'Pick up (back to bag)')));
     }
     const sd = cat.SEED_BY[tile.seed], total = growMs(sd);
-    if (now() >= tile.at + total) { send({ t: 'harvest', tx, ty }); return; }
+    if (now() >= tile.at + total) { send({ t: 'harvest', land, tx, ty }); return; }
     openModal(sd.name + ' is growing', () => {
       const bar = h('div', { style: 'width:100%;height:100%' });
       const left = h('div', { style: 'font-size:22px;font-weight:700' });
@@ -382,7 +455,7 @@
       return h('div', { class: 'center' }, plantIcon(sd, false), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'Keeps growing even when you log out or the server restarts.'));
     });
   }
-  function plantMenu(tx, ty) {
+  function plantMenu(land, tx, ty) {
     let tab = 'seeds';
     openModal('What do you want here?', () => {
       const b = h('div', {}, tabs([['seeds', '🌱 Plant a seed'], ['furn', '🪑 Place furniture']], tab, t => { tab = t; }));
@@ -391,16 +464,121 @@
         if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no seeds. Buy some at the shop 🏪 (the building in the middle).')); return b; }
         const list = h('div', { class: 'list' });
         ent.forEach(sd => list.append(h('div', { class: 'lrow' }, plantIcon(sd, false), h('div', { class: 'grow' }, h('b', {}, sd.name), h('div', { class: 'muted' }, 'Grows ' + fmtHours(sd.hours) + ' · sells ' + money(sd.sell) + ' · you have ' + me.seeds[sd.id])),
-          h('button', { class: 'btn green', onclick: () => { send({ t: 'plant', tx, ty, seed: sd.id }); closeModal(); } }, 'Plant'))));
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'plant', land, tx, ty, seed: sd.id }); closeModal(); } }, 'Plant'))));
         b.append(list);
       } else {
         const ent = cat.FURNITURE.filter(f => me.furniture[f.id] > 0);
-        if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no furniture. Buy some at the shop 🏪.')); return b; }
+        if (!ent.length) { b.append(h('div', { class: 'muted' }, 'You have no furniture. Buy some at the shop 🏪 or forage bushes.')); return b; }
         const g = h('div', { class: 'grid' });
-        ent.forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, '×' + me.furniture[f.id]), h('button', { class: 'btn sm green', onclick: () => { send({ t: 'place', tx, ty, furn: f.id }); closeModal(); } }, 'Place'))));
+        ent.forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, '×' + me.furniture[f.id]), h('button', { class: 'btn sm green', onclick: () => { send({ t: 'place', land, tx, ty, furn: f.id }); closeModal(); } }, 'Place'))));
         b.append(g);
       }
       return b;
+    });
+  }
+
+  // ---------- mini-games + side activities ----------
+  function runMinigame(kind, title, onDone) {
+    const secs = (cat.MINIGAMES[kind] && cat.MINIGAMES[kind].secs) || 5;
+    const body = h('div', { class: 'center', id: 'mg-live' });
+    const timer = h('div', { class: 'muted' });
+    let done = false, taps = 0, need = 10, seq = [], idx = 0, target = 0.55, win = 0.16;
+    const finish = ok => { if (done) return; done = true; closeModal(); onDone(!!ok); };
+    openModal(title, () => {
+      if (kind === 'tap' || kind === 'milk') {
+        need = kind === 'milk' ? 12 : 10;
+        body.append(h('div', { style: 'font-size:40px;font-weight:900', id: 'mg-n' }, '0 / ' + need), h('div', { class: 'muted' }, 'Mash Space / click!'));
+      } else if (kind === 'sequence') {
+        seq = ['W', 'A', 'S', 'D', 'E'].slice(0, 4); idx = 0;
+        body.append(h('div', { id: 'mg-seq', style: 'font-size:28px;font-weight:900;letter-spacing:6px' }, seq.join(' ')), h('div', { class: 'muted' }, 'Press keys in order'));
+      } else if (kind === 'timing') {
+        body.append(h('div', { class: 'bar', style: 'width:100%;position:relative;height:28px' }, h('div', { style: 'position:absolute;left:40%;width:20%;top:0;bottom:0;background:#8fdc7a' }), h('div', { id: 'mg-needle', style: 'position:absolute;top:0;bottom:0;width:4px;background:#c92a2a;left:0' })), h('div', { class: 'muted' }, 'Space when the bar is green'));
+      } else { // match
+        const opts = ['Bloom', 'Sunny', 'Harvest', 'Fresh'], ans = opts[Math.floor(Math.random() * opts.length)];
+        const wrap = h('div', { class: 'grid', style: 'width:100%' });
+        opts.sort(() => Math.random() - .5).forEach(o => wrap.append(h('button', { class: 'btn', onclick: () => finish(o === ans) }, o)));
+        body.append(h('div', {}, 'Pick: "' + ans + '"'), wrap);
+      }
+      return h('div', { class: 'center' }, body, timer);
+    });
+    const start = performance.now();
+    const onKey = e => {
+      if (done) return;
+      const code = e.code || '';
+      if (kind === 'tap' || kind === 'milk') {
+        if (code === 'Space' || e.type === 'mousedown') {
+          e.preventDefault?.(); taps++;
+          const n = document.getElementById('mg-n'); if (n) n.textContent = taps + ' / ' + need;
+          if (taps >= need) finish(true);
+        }
+      } else if (kind === 'sequence') {
+        const map = { KeyW: 'W', KeyA: 'A', KeyS: 'S', KeyD: 'D', KeyE: 'E' };
+        if (!map[code]) return;
+        if (map[code] === seq[idx]) { idx++; const el = document.getElementById('mg-seq'); if (el) el.textContent = seq.map((k, i) => i < idx ? '✓' : k).join(' '); if (idx >= seq.length) finish(true); }
+        else finish(false);
+      } else if (kind === 'timing' && (code === 'Space' || e.type === 'mousedown')) {
+        const at = (performance.now() - start) / 1000 / secs;
+        finish(Math.abs(at - target) <= win);
+      }
+    };
+    const tick = () => {
+      if (done) return;
+      const elapsed = (performance.now() - start) / 1000;
+      timer.textContent = Math.max(0, secs - elapsed).toFixed(1) + 's';
+      if (kind === 'timing') { const nd = document.getElementById('mg-needle'); if (nd) nd.style.left = Math.min(100, (elapsed / secs) * 100) + '%'; }
+      if (elapsed > secs) finish(false); else requestAnimationFrame(tick);
+    };
+    addEventListener('keydown', onKey); addEventListener('mousedown', onKey);
+    const prevClose = modalClose;
+    modalClose = () => { removeEventListener('keydown', onKey); removeEventListener('mousedown', onKey); prevClose && prevClose(); };
+    requestAnimationFrame(tick);
+  }
+  function openStall(stall) {
+    const last = (me.stallAt && me.stallAt[stall.id]) || 0;
+    const left = stall.cd * 1000 - (now() - last);
+    openModal(stall.name, () => h('div', { class: 'center' },
+      h('div', {}, 'Run a quick mini-game for a small tip (' + money(stall.pay[0]) + '–' + money(stall.pay[1]) + ').'),
+      h('div', { class: 'muted' }, left > 0 ? 'Cooldown ' + Math.ceil(left / 1000) + 's' : 'Ready!'),
+      h('button', { class: 'btn green', disabled: left > 0, onclick: () => {
+        closeModal();
+        runMinigame(stall.game, stall.name, ok => send({ t: 'stall_play', id: stall.id, ok: ok ? 1 : 0 }));
+      } }, 'Play mini-game')));
+  }
+  function forageBush(bush) {
+    openModal('Forage bush', () => h('div', { class: 'center' },
+      h('div', {}, 'Shake the bush. ~5% chance of exclusive furniture / clothes (not sold in shops).'),
+      h('button', { class: 'btn green', onclick: () => { send({ t: 'forage', id: bush.id }); closeModal(); } }, 'Forage')));
+  }
+  function openPetShop() {
+    openModal('🐾 Pet Shop', () => {
+      const g = h('div', { class: 'grid' });
+      (cat.PETS || []).forEach(p => {
+        const own = (me.pets || []).includes(p.id);
+        g.append(h('div', { class: 'item' + (own ? ' own' : '') }, h('div', { class: 'nm' }, p.name), h('div', { class: 'muted' }, own ? 'Owned' : money(p.price)),
+          own ? null : h('button', { class: 'btn sm green', onclick: () => send({ t: 'buy', kind: 'pet', id: p.id }) }, 'Adopt')));
+      });
+      return h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:8px' }, 'Cute companions (cosmetic). Livestock is at the pens to the north.'), g);
+    });
+  }
+  function openPen(kind) {
+    const a = cat.ANIMALS[kind]; if (!a) return;
+    const n = (me.animals && me.animals[kind]) || 0;
+    openModal(a.name + ' Pen', () => {
+      const box = h('div', { class: 'center' });
+      box.append(h('div', {}, 'You own ' + n + ' / ' + a.max));
+      box.append(h('button', { class: 'btn green', onclick: () => send({ t: 'buy', kind: 'animal', id: kind }) }, 'Buy ' + a.name + ' · ' + money(a.buy)));
+      if (kind === 'chicken') {
+        box.append(h('button', { class: 'btn', onclick: () => send({ t: 'collect_eggs' }) }, 'Collect eggs'));
+        box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: 'chicken' }) }, 'Process chicken → meat'));
+      } else {
+        box.append(h('button', { class: 'btn', onclick: () => {
+          closeModal();
+          runMinigame('milk', 'Milk the ' + a.name, ok => send({ t: 'milk', id: kind, ok: ok ? 1 : 0 }));
+        } }, 'Milk mini-game'));
+        box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: kind }) }, 'Process → meat' + (kind === 'sheep' ? ' + wool' : '')));
+      }
+      box.append(h('div', { class: 'muted' }, 'Sell eggs / milk / wool / meat from your Bag.'));
+      return box;
     });
   }
 
@@ -516,9 +694,9 @@
     });
     const [mbx, mby] = toBuf(mouse.x, mouse.y); const hp = pickAt(mbx, mby);
     hoverTile = hp && !hp.shop ? hp : null;
-    if (hoverTile && !modalOpen()) {
+    if (hoverTile && hoverTile.i != null && !modalOpen() && WD.lands[hoverTile.i] && lands[hoverTile.i]) {
       const o = WD.lands[hoverTile.i], L = lands[hoverTile.i];
-      if (L.owner === myName) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0, 'rgba(255,255,255,.4)');
+      if (L.owner === myName && hoverTile.lx != null) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0, 'rgba(255,255,255,.4)');
       else view.quad(o.x, o.y, o.x + LS, o.y + LS, 0, !L.owner ? 'rgba(255,230,120,.3)' : 'rgba(210,70,50,.14)');
     }
 
@@ -552,21 +730,34 @@
       const L = lands[i], mid = [[o.x + 4, o.y], [o.x + 4, o.y + LS], [o.x, o.y + 4], [o.x + LS, o.y + 4]];
       let far = null; for (const [mx, mz] of mid) { const s = toPage(mx, 0, mz); if (!far || s[2] > far[2]) far = s; }
       if (far[0] < -100 || far[0] > vw + 100 || far[1] < -50 || far[1] > vh + 50) return;
-      const label = L.owner ? L.owner + "'s land" : 'Land ' + (i + 1) + ' — FOR CLAIM';
+      const expand = WD.lands[i] && WD.lands[i].expand;
+      const label = L.owner ? L.owner + "'s land" : (expand ? 'Expansion · $' + (cat.EXPAND_COST || 800) : 'Land ' + (i + 1) + ' — FOR CLAIM');
       lctx.font = 'bold 13px Trebuchet MS'; const w = lctx.measureText(label).width + 18;
-      lctx.fillStyle = L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : '#ffd1c9'; lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
+      lctx.fillStyle = L.owner ? (L.owner === myName ? '#bff0a8' : '#fff1c9') : (expand ? '#d0ebff' : '#ffd1c9'); lctx.strokeStyle = '#7a5230'; lctx.lineWidth = 2;
       lctx.beginPath(); lctx.roundRect(far[0] - w / 2, far[1] - 30, w, 20, 6); lctx.fill(); lctx.stroke();
       lctx.fillStyle = '#3b2a1a'; lctx.textAlign = 'center'; lctx.fillText(label, far[0], far[1] - 16); lctx.textAlign = 'left';
     });
     const sc = toPage(WD.shop.x + WD.shop.w / 2, 2.2, WD.shop.y + WD.shop.h / 2);
     lctx.font = 'bold 18px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#6b1a0d'; lctx.strokeText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.fillStyle = '#fff3c4'; lctx.fillText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.textAlign = 'left';
     if (nearShop() && !modalOpen()) tag('Press F or click the shop', sc[0], sc[1] + 20, '#ffe066');
+    for (const s of (WD.stalls || [])) { const p = toPage(s.x, 1.1, s.y); if (p[0] > -40 && p[0] < vw + 40) tag(s.name, p[0], p[1], '#ffe8a3'); }
+    if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('🐾 Pet Shop', p[0], p[1], '#e5dbff'); }
+    for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     for (const p of list) { const s = toPage(p.rx / TILE, 1.7, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
-    let hint = 'WASD walk · Q/E or right-drag to rotate · wheel to zoom · click your land · Enter to chat';
-    if (me.land == null) hint = 'Click an empty land to claim it as yours 🌱';
-    else if (hoverTile) { const L = lands[hoverTile.i]; hint = L.owner === myName ? 'Click: plant, decorate, or harvest' : L.owner ? 'This is ' + L.owner + "'s land" : ''; }
+    let hint = 'WASD · side stalls/pens/bushes · peek others\' crops · Enter chat';
+    if (me.land == null) hint = 'Claim a starter land (1–8) 🌱 · expansion plots are on the right';
+    else if (hoverTile) {
+      if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name + ' mini-game';
+      else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
+      else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
+      else if (hoverTile.petShop) hint = 'Click: Pet Shop';
+      else if (hoverTile.i != null && lands[hoverTile.i]) {
+        const L = lands[hoverTile.i];
+        hint = L.owner === myName ? 'Click: plant, decorate, or harvest' : L.owner ? 'Click their plants to view growth' : (WD.lands[hoverTile.i].expand ? 'Paid expansion plot' : 'Unclaimed land');
+      }
+    }
     $('#hint').textContent = hint; $('#hint').style.display = modalOpen() ? 'none' : '';
   }
   requestAnimationFrame(frame);

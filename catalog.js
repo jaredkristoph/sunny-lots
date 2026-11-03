@@ -143,25 +143,96 @@ const DEFAULT_AVATAR = {
   top: 'top_tee_white', bottom: 'bot_jeans', hat: '', shoes: 'shoe_plain',
 };
 
-// ---- World layout (in tiles). 8 lands: 4 across, 2 rows, shop plaza in the middle.
+// ---- World layout (in tiles).
+// IMPORTANT: original 8 lands keep EXACT coords so existing saves/crops stay valid.
+// Map grows RIGHT and DOWN only; new POIs + expansion plots live in the new strip.
 const LAND_SIZE = 8;
+const EXPAND_COST = 800; // buy a side expansion plot (lands 8+)
 const WORLD = {
   tile: 48,
   landSize: LAND_SIZE,
-  landCount: 8,
-  width: 42,
-  height: 26,
+  landCount: 12, // 8 original + 4 expansion plots (never move indices 0-7)
+  width: 58,
+  height: 36,
   lands: [],
   shop: { x: 18, y: 11, w: 6, h: 3 },
   shopDoor: { x: 21, y: 14.6 },
+  // side stalls / buildings (tile coords) — outside original plots
+  stalls: [
+    { id: 'lemonade', name: 'Lemonade Stand', x: 0.5, y: 8, game: 'tap', pay: [10, 18], cd: 40 },
+    { id: 'flowers', name: 'Flower Cart', x: 0.5, y: 12, game: 'match', pay: [12, 20], cd: 45 },
+    { id: 'craft', name: 'Craft Hut', x: 0.5, y: 16, game: 'timing', pay: [14, 22], cd: 50 },
+    { id: 'bakery', name: 'Corner Bakery', x: 0.5, y: 20, game: 'sequence', pay: [12, 22], cd: 45 },
+    { id: 'arcade', name: 'Tiny Arcade', x: 40.5, y: 12, game: 'tap', pay: [15, 24], cd: 55 },
+  ],
+  petShop: { x: 44, y: 28, w: 4, h: 3 },
+  pens: {
+    chicken: { x: 49, y: 2, w: 4, h: 4 },
+    cow: { x: 49, y: 8, w: 4, h: 4 },
+    sheep: { x: 49, y: 14, w: 4, h: 4 },
+  },
+  bushes: [
+    { id: 'b1', x: 6, y: 28 }, { id: 'b2', x: 12, y: 30 }, { id: 'b3', x: 20, y: 29 },
+    { id: 'b4', x: 28, y: 31 }, { id: 'b5', x: 36, y: 28 }, { id: 'b6', x: 8, y: 33 },
+    { id: 'b7', x: 24, y: 34 }, { id: 'b8', x: 40, y: 33 },
+  ],
 };
-for (let i = 0; i < 8; i++) WORLD.lands.push({ x: 2 + (i % 4) * 10, y: 2 + Math.floor(i / 4) * 14 });
+for (let i = 0; i < 8; i++) WORLD.lands.push({ x: 2 + (i % 4) * 10, y: 2 + Math.floor(i / 4) * 14, expand: false });
+// expansion plots on the far-right strip (do not overlap original lands)
+for (let i = 0; i < 4; i++) WORLD.lands.push({ x: 44, y: 2 + i * 6, expand: true });
+
+// Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
+const RARE_FURN = [
+  { id: 'bush_gnome', name: 'Garden Gnome', shape: 'statue', v: 0, pal: ['#3d9a6a', '#fff', '#2b6b48'], price: 0, buyable: false },
+  { id: 'bush_lantern', name: 'Firefly Lantern', shape: 'lamp', v: 2, pal: ['#ffe066', '#fff9db', '#c9a227'], price: 0, buyable: false },
+  { id: 'bush_totem', name: 'Moss Totem', shape: 'statue', v: 1, pal: ['#5c7a3a', '#b2f2bb', '#33481f'], price: 0, buyable: false },
+  { id: 'bush_hammock', name: 'Leaf Hammock', shape: 'sofa', v: 0, pal: ['#8ce99a', '#d8f5a2', '#2f9e44'], price: 0, buyable: false },
+];
+const RARE_CLOTH = [
+  { id: 'top_leafcloak', name: 'Leaf Cloak', slot: 'top', price: 0, c: ['#40c057', '#212529'], pat: 'zigzag', long: true, buyable: false },
+  { id: 'hat_acorn', name: 'Acorn Cap', slot: 'hat', price: 0, c: ['#8a5a2b', '#f2b632'], shape: 'beanie', buyable: false },
+  { id: 'bot_vines', name: 'Vine Trousers', slot: 'bottom', price: 0, c: ['#2f9e44', '#94d82d'], pat: 'stripes', len: 'long', buyable: false },
+  { id: 'shoe_moss', name: 'Moss Slippers', slot: 'shoes', price: 0, c: ['#69db7c', '#2b8a3e'], pat: 'solid', buyable: false },
+];
+for (const f of RARE_FURN) FURNITURE.push(f);
+for (const c of RARE_CLOTH) CLOTHES.push(c);
+
+const BUSH_DROP = 0.05;
+const BUSH_CD = 90; // seconds between forages per bush per player
+const BUSH_LOOT = [...RARE_FURN.map(f => ({ kind: 'furn', id: f.id })), ...RARE_CLOTH.map(c => ({ kind: 'cloth', id: c.id }))];
+
+const ANIMALS = {
+  chicken: { name: 'Chicken', buy: 90, eggEvery: 480, eggSell: 14, meatSell: 45, max: 8 },
+  cow: { name: 'Cow', buy: 280, milkPay: [16, 26], milkCd: 70, meatSell: 120, max: 4 },
+  sheep: { name: 'Sheep', buy: 200, milkPay: [14, 22], milkCd: 60, woolSell: 20, meatSell: 90, max: 6 },
+};
+const PETS = [
+  { id: 'pet_dog', name: 'Puppy', price: 350 },
+  { id: 'pet_cat', name: 'Kitten', price: 320 },
+  { id: 'pet_bunny', name: 'Bunny', price: 280 },
+];
+const PRODUCTS = {
+  egg: { name: 'Egg', sell: 14 },
+  milk: { name: 'Milk', sell: 20 },
+  wool: { name: 'Wool', sell: 20 },
+  meat: { name: 'Meat', sell: 50 },
+};
+
+const MINIGAMES = {
+  tap: { name: 'Tap Rush', secs: 4.5 },
+  match: { name: 'Pick Match', secs: 6 },
+  timing: { name: 'Green Zone', secs: 4.2 },
+  sequence: { name: 'Key Path', secs: 6 },
+  milk: { name: 'Milk Rhythm', secs: 5 },
+};
 
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
-  GOLD_CHANCE, GOLD_MULT, START_MONEY,
+  GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST,
+  BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),
   FURN_BY: Object.fromEntries(FURNITURE.map(s => [s.id, s])),
   CLOTH_BY: Object.fromEntries(CLOTHES.map(s => [s.id, s])),
+  PET_BY: Object.fromEntries(PETS.map(p => [p.id, p])),
 };

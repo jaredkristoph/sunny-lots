@@ -303,5 +303,55 @@ const Vox = (() => {
     return (furnCache[f.id] = { boxes: B, h: top, dyn });
   }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten };
+  function stallBoxes(kind) {
+    const B = mk();
+    B.add(0, 0, 0, .9, .08, .6, '#8a5a2b');
+    B.add(0, .08, 0, .85, .55, .55, '#f4e0b0');
+    B.add(0, .7, 0, 1.05, .08, .7, '#c92a2a');
+    B.add(-.4, .08, .28, .08, .55, .08, '#7a5230'); B.add(.4, .08, .28, .08, .55, .08, '#7a5230');
+    if (kind === 'lemonade') { B.add(0, .25, .28, .2, .25, .12, '#ffe066'); B.add(0, .5, .28, .12, .08, .12, '#fff'); }
+    else if (kind === 'flowers') { [[-.2, .35], [0, .4], [.2, .35]].forEach(([x, y]) => { B.add(x, y, .3, .1, .1, .1, '#ff6b6b'); B.add(x, y - .08, .3, .04, .1, .04, '#2f9e44'); }); }
+    else if (kind === 'craft') { B.add(0, .2, .28, .35, .18, .18, '#adb5bd'); B.add(0, .4, .28, .2, .15, .15, '#868e96'); }
+    else if (kind === 'bakery') { B.add(0, .28, .3, .28, .12, .16, '#e8b86d'); B.add(0, .4, .3, .18, .08, .12, '#f4d6a0'); }
+    else { B.add(0, .25, .28, .3, .22, .14, '#4263eb'); B.add(0, .48, .28, .18, .12, .1, '#ffd43b'); }
+    return B;
+  }
+  function penFence(w, h) {
+    const B = mk();
+    for (let i = 0; i <= w; i++) { B.add(i - w / 2, 0, -h / 2, .08, .35, .08, '#a0703c'); B.add(i - w / 2, 0, h / 2, .08, .35, .08, '#a0703c'); }
+    for (let j = 0; j <= h; j++) { B.add(-w / 2, 0, j - h / 2, .08, .35, .08, '#a0703c'); B.add(w / 2, 0, j - h / 2, .08, .35, .08, '#a0703c'); }
+    B.add(0, .18, -h / 2, w, .04, .04, '#8a5a2b'); B.add(0, .18, h / 2, w, .04, .04, '#8a5a2b');
+    return B;
+  }
+  function animalBoxes(kind) {
+    const B = mk();
+    if (kind === 'chicken') {
+      B.add(0, .12, 0, .22, .18, .2, '#fff'); B.add(.12, .2, 0, .1, .08, .1, '#ff922b'); B.add(0, .3, 0, .16, .1, .16, '#fff');
+      B.add(0, .38, 0, .08, .06, .08, '#e03131'); B.add(-.06, 0, .05, .05, .12, .05, '#ffd43b'); B.add(.06, 0, .05, .05, .12, .05, '#ffd43b');
+    } else if (kind === 'cow') {
+      B.add(0, .2, 0, .45, .3, .25, '#f8f9fa'); B.add(-.1, .25, 0, .12, .12, .26, '#212529'); B.add(.15, .28, -.05, .1, .1, .1, '#212529');
+      B.add(-.2, .35, .05, .14, .14, .14, '#f8f9fa'); B.add(-.28, .4, .05, .05, .05, .05, '#ff922b');
+      [[-.15, 0], [.15, 0], [-.15, .15], [.15, .15]].forEach(([x, z]) => B.add(x, 0, z, .07, .2, .07, '#212529'));
+    } else {
+      B.add(0, .18, 0, .35, .28, .22, '#f1f3f5'); B.add(-.18, .3, 0, .12, .12, .12, '#f1f3f5');
+      B.add(0, .42, -.02, .08, .1, .08, '#adb5bd');
+      [[-.12, 0], [.12, 0], [-.12, .12], [.12, .12]].forEach(([x, z]) => B.add(x, 0, z, .06, .16, .06, '#868e96'));
+    }
+    return B;
+  }
+  function bushBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, .5, .35, .5, '#2f9e44'); B.add(0, .2, 0, .4, .3, .4, '#37b24d'); B.add(.1, .35, .05, .2, .18, .2, '#40c057');
+    B.add(-.12, .28, -.1, .16, .14, .16, '#2b8a3e');
+    return B;
+  }
+  function shopBox(w, h, d, roof) {
+    const B = mk();
+    B.add(0, 0, 0, w, h, d, '#f8e8c8');
+    B.add(0, h, 0, w + .2, .12, d + .2, roof || '#e03131');
+    B.add(0, .35, d / 2, .35, .55, .04, '#8a5a2b');
+    return B;
+  }
+
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, bushBoxes, shopBox };
 })();
