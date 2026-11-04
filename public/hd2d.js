@@ -8,7 +8,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 
 const TEX_CACHE = new Map();
 const SPRITE_CACHE = new Map();
@@ -149,8 +148,8 @@ function makeCritterSprite(kind, pet) {
 const VignetteShader = {
   uniforms: {
     tDiffuse: { value: null },
-    offset: { value: 1.05 },
-    darkness: { value: 0.85 },
+    offset: { value: 1.2 },
+    darkness: { value: 0.97 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -161,10 +160,10 @@ const VignetteShader = {
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       vec2 uv = (vUv - 0.5) * vec2(offset);
-      float v = smoothstep(0.7, 1.45, dot(uv, uv));
-      c.rgb = mix(c.rgb, c.rgb * darkness, v);
-      // warm grade
-      c.rgb = mix(c.rgb, c.rgb * vec3(1.05, 0.98, 0.92), 0.25);
+      float v = smoothstep(0.95, 1.6, dot(uv, uv));
+      c.rgb = mix(c.rgb, c.rgb * darkness, v * 0.35);
+      // gentle lift so the farm stays readable
+      c.rgb = c.rgb * 1.06 + 0.02;
       gl_FragColor = c;
     }
   `,
@@ -180,30 +179,27 @@ class View {
     this.W = 1; this.H = 1;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setClearColor(0xb8e0b0, 1);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    this.renderer.setClearColor(0xc8efb8, 1);
+    // soft shadows looked muddy on mobile — keep crisp/readable instead
+    this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xf0dcc8, 0.018);
+    this.scene.fog = new THREE.FogExp2(0xe8f5d8, 0.006);
 
     this.camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 200);
     this.camera.position.set(0, 28, 0);
     this.camera.up.set(0, 1, 0);
 
-    // lights — golden hour
-    this.hemi = new THREE.HemisphereLight(0xffe8d0, 0x88b888, 1.05);
+    // bright pastel daylight (readable, not muddy)
+    this.hemi = new THREE.HemisphereLight(0xfff8f0, 0xb8e0a8, 1.35);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffe0b8, 1.35);
-    this.sun.position.set(18, 28, 10);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    this.sun.shadow.camera.left = -40; this.sun.shadow.camera.right = 40;
-    this.sun.shadow.camera.top = 40; this.sun.shadow.camera.bottom = -40;
-    this.sun.shadow.bias = -0.0005;
+    this.sun = new THREE.DirectionalLight(0xfff5e6, 1.15);
+    this.sun.position.set(14, 32, 12);
+    this.sun.castShadow = false;
     this.scene.add(this.sun);
-    this.scene.add(new THREE.AmbientLight(0xfff5ea, 0.35));
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.72));
 
     this.staticRoot = new THREE.Group();
     this.scene.add(this.staticRoot);
@@ -214,7 +210,6 @@ class View {
     this.scene.add(this.root);
 
     this.composer = null;
-    this._bokeh = null;
     this._bloom = null;
     this._pending = [];
     this._geo = new THREE.BoxGeometry(1, 1, 1);
@@ -273,12 +268,9 @@ class View {
     const w = Math.max(1, this.W), h = Math.max(1, this.H);
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this._bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.28, 0.6, 0.82);
+    // tiny bloom only — heavy DOF made the whole farm unreadable
+    this._bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.08, 0.4, 0.92);
     this.composer.addPass(this._bloom);
-    this._bokeh = new BokehPass(this.scene, this.camera, {
-      focus: 28, aperture: 0.00022, maxblur: 0.008,
-    });
-    this.composer.addPass(this._bokeh);
     this.composer.addPass(new ShaderPass(VignetteShader));
   }
 
@@ -318,9 +310,6 @@ class View {
     this.camera.lookAt(cx, 0.4, cz);
     this.sun.target.position.set(cx, 0, cz);
     this.sun.target.updateMatrixWorld();
-    if (this._bokeh && this._bokeh.uniforms && this._bokeh.uniforms['focus']) {
-      this._bokeh.uniforms['focus'].value = dist * 0.92;
-    }
   }
 
   prep() {
@@ -333,9 +322,9 @@ class View {
 
   clear() { /* sky handled in clearSky */ }
   clearSky() {
-    this.renderer.setClearColor(0xe8f0d8, 1);
-    this.scene.background = new THREE.Color(0xe8dcc8);
-    this.scene.fog.color.set(0xf0dcc8);
+    this.renderer.setClearColor(0xd4f0c0, 1);
+    this.scene.background = new THREE.Color(0xd8f0c8);
+    this.scene.fog.color.set(0xe8f5d8);
   }
 
   quad(x0, z0, x1, z1, y, fill) {

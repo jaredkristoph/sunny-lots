@@ -1001,8 +1001,9 @@
     }
     const moving = Math.hypot(ix, iy) > .08;
     if (moving) {
+      // HD-2D camera sits on +yaw; screen-up is into the scene (−sin/−cos)
       const s = Math.sin(view.yaw), c = Math.cos(view.yaw);
-      let wx = c * ix + s * iy, wz = -s * ix + c * iy; const l = Math.hypot(wx, wz); wx /= l; wz /= l;
+      let wx = c * ix - s * iy, wz = -s * ix - c * iy; const l = Math.hypot(wx, wz); wx /= l; wz /= l;
       const mag = stick.active ? Math.min(1, Math.hypot(stick.x, stick.y)) : 1;
       const sprint = keys.has('shift') || stick.run;
       const sp = (sprint ? 280 : 190) * dt * mag;
