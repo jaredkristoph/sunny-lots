@@ -58,21 +58,15 @@ button{font:inherit;cursor:pointer}
 input.txt{border:2px solid #b8862b;border-radius:10px;padding:8px 12px;font:inherit;background:#fffbe9;width:100%}
 .pw{font-family:monospace;font-size:28px;letter-spacing:2px;background:#fffbe9;border:3px dashed #3d8f2c;border-radius:12px;padding:10px 16px;user-select:all}
 select{font:inherit;border:2px solid #b8862b;border-radius:8px;padding:3px 6px;background:#fff}
-#walk-pad{display:none;position:fixed;left:12px;bottom:12px;width:132px;height:132px;z-index:12;touch-action:none;user-select:none;-webkit-user-select:none}
-#walk-pad .ring{position:absolute;inset:0;border-radius:50%;background:rgba(255,248,225,.42);border:3px solid rgba(184,134,43,.7);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
-#walk-pad .knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:rgba(255,215,106,.92);border:3px solid #b8862b;box-shadow:0 3px 0 #b8862b;pointer-events:none}
-#walk-pad .run{position:absolute;right:-62px;bottom:8px;width:52px;height:52px;border-radius:50%;padding:0;font-size:20px;display:flex;align-items:center;justify-content:center}
-body.phone #walk-pad{display:block}
-body.phone #chat{bottom:152px;width:min(280px,62vw)}
-body.phone #chatlog{max-height:72px}
-body.phone #hint{bottom:auto;top:58px;max-width:78vw;font-size:12px}
-body.phone #hud .row .btn{padding:8px 10px}
-@media (pointer:coarse),(max-width:820px){
-  body.touchable #walk-pad{display:block}
-  body.touchable #chat{bottom:152px;width:min(280px,62vw)}
-  body.touchable #chatlog{max-height:72px}
-  body.touchable #hint{bottom:auto;top:58px;max-width:78vw;font-size:12px}
-}
+#walk-pad{display:none !important;position:fixed;left:max(12px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));width:148px;height:148px;z-index:30;touch-action:none;user-select:none;-webkit-user-select:none}
+#walk-pad.on{display:block !important}
+#walk-pad .ring{position:absolute;inset:0;border-radius:50%;background:rgba(255,248,225,.72);border:3px solid #b8862b;box-shadow:0 4px 16px rgba(0,0,0,.28),inset 0 0 0 2px rgba(255,255,255,.35)}
+#walk-pad .knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:#ffd76a;border:3px solid #b8862b;box-shadow:0 3px 0 #b8862b;pointer-events:none}
+#walk-pad .run{position:absolute;right:-66px;bottom:10px;width:56px;height:56px;border-radius:50%;padding:0;font-size:22px;display:flex;align-items:center;justify-content:center;z-index:1}
+body.phone #chat,body.touchable #chat{bottom:168px;width:min(280px,62vw)}
+body.phone #chatlog,body.touchable #chatlog{max-height:72px}
+body.phone #hint,body.touchable #hint{bottom:auto;top:58px;max-width:78vw;font-size:12px}
+body.phone #hud .row .btn,body.touchable #hud .row .btn{padding:8px 10px}
 </style>
 </head>
 <body>
@@ -90,7 +84,7 @@ body.phone #hud .row .btn{padding:8px 10px}
     <button class="btn red" id="b-out">Log out</button>
   </div>
 </div>
-<div id="walk-pad" aria-label="Walk stick" hidden>
+<div id="walk-pad" aria-label="Walk stick">
   <div class="ring"></div>
   <div class="knob" id="walk-knob"></div>
   <button type="button" class="btn run" id="b-run" title="Hold to run">🏃</button>

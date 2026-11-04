@@ -44,13 +44,20 @@
   const keys = new Set();
   const stick = { x: 0, y: 0, active: false, run: false };           // phone virtual stick (−1..1)
   let started = false, lastSent = 0, sentX = -1, sentY = -1, hoverTile = null;
-  const isPhoneUI = () => matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 820px)').matches || ('ontouchstart' in window);
+  const isPhoneUI = () => {
+    if (matchMedia('(pointer: coarse)').matches) return true;
+    if (matchMedia('(hover: none)').matches) return true;
+    if (navigator.maxTouchPoints > 0) return true;
+    if ('ontouchstart' in window) return true;
+    if (matchMedia('(max-width: 820px)').matches) return true;
+    return false;
+  };
   function syncPhoneUI() {
     const on = isPhoneUI();
     document.body.classList.toggle('touchable', on);
     document.body.classList.toggle('phone', on);
     const pad = $('#walk-pad');
-    if (pad) pad.hidden = !started || !on;
+    if (pad) pad.classList.toggle('on', !!(started && on));
   }
   const now = () => Date.now() + clockOff;
   const growMs = sd => sd.hours * 3600000 / SPEED;
