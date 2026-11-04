@@ -45,5 +45,12 @@ WASD / arrows to walk (Shift = run, movement follows the camera), **Q / E** or r
 rotate the camera, mouse wheel to zoom, click a land to claim it, click your tiles to plant,
 decorate or harvest, **F** at the shop, **Enter** to chat, **B** bag, **I** wardrobe.
 
+## Sunny Casino 🎰
+Two tables east of the park (click one to play): **Roulette** (single zero; number 35:1, dozens 2:1,
+red/black/odd/even/low/high 1:1) and **Blackjack** (dealer stands on 17, blackjack pays 3:2, double on
+first two cards). Minimum bet is **$50** (`MIN_BET` in `casino.js`). All outcomes and money are decided on the
+server. Each table has an **Info & Top 10** tab with shared stats (rounds, bets, wagered, paid out, biggest win)
+and the top 10 players by net winnings. Emotes: **G** or the 😀 button, or `/dance`, `/sit`, … in chat.
+
 ## Accounts
 Pick a username, the server generates a password and shows it once. There is no password reset.

@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const C = require('./catalog');
+const Casino = require('./casino');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -59,8 +60,10 @@ function landFootprint(i) {
   }
   return set;
 }
+const SEA_TILES = new Set((C.WORLD.sea && C.WORLD.sea.tiles) || []);
 function worldBlocked(wx, wy) {
   if (wx < 0 || wy < 0 || wx >= C.WORLD.width || wy >= C.WORLD.height) return true;
+  if (SEA_TILES.has(wx + ',' + wy)) return true;
   const S = C.WORLD.shop;
   if (wx >= S.x && wx < S.x + S.w && wy >= S.y && wy < S.y + S.h) return true;
   if (C.WORLD.park && wx >= C.WORLD.park.x && wx < C.WORLD.park.x + C.WORLD.park.w && wy >= C.WORLD.park.y && wy < C.WORLD.park.y + C.WORLD.park.h) return true;
@@ -74,6 +77,7 @@ function relOwned(L, tx, ty) {
   return !!(L.extra && L.extra[tx + ',' + ty]);
 }
 function ensureUser(u) {
+  Casino.ensureUser(u);
   if (!u.animals) u.animals = { chicken: 0, cow: 0, sheep: 0 };
   if (!u.products) u.products = {};
   if (!u.pets) u.pets = [];
@@ -82,6 +86,7 @@ function ensureUser(u) {
   if (!u.animalAt) u.animalAt = { egg: 0, milkCow: 0, milkSheep: 0 };
   if (u.expandLand === undefined) u.expandLand = null;
   if (u.houseLand === undefined) u.houseLand = null;
+  if (!u.animalNames) u.animalNames = {}; // 'chicken:0' -> 'Clucky'
   if (!u.animalStay) u.animalStay = 'farm'; // farm | house
   if (!u.petStay) u.petStay = 'follow'; // follow | farm | house
   if (!u.seeds) u.seeds = {};
@@ -94,6 +99,7 @@ const roundMoney = v => Math.round(Number(v) * 100) / 100;
 for (const u of Object.values(db.users)) ensureUser(u);
 let dirty = true;
 const touch = () => { dirty = true; };
+Casino.ensureDb(db);
 ensureNpcHouse();
 
 // Optional Upstash Redis storage (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN).
@@ -219,14 +225,16 @@ const meView = u => ({
   name: u.name, money: u.money, seeds: u.seeds, crops: u.crops, furniture: u.furniture,
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
-  animalStay: u.animalStay, petStay: u.petStay,
+  animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames,
   stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt,
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
+const sendCasino = (c, game) => send(c.ws, Object.assign({ t: 'casino_info', bj: game === 'blackjack' ? Casino.bjView(c.u) : undefined }, Casino.info(db, game, c.u.name)));
 const playerList = () => [...online.values()].map(c => ({
   n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
-  animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay,
+  animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames,
+  e: c.emote || null, es: c.emoteAt || 0,
   land: c.u.land, houseLand: c.u.houseLand, expandLand: c.u.expandLand,
 }));
 const landView = l => ({
@@ -299,8 +307,9 @@ wss.on('connection', ws => {
     switch (m.t) {
       case 'move': {
         if (typeof m.x !== 'number' || typeof m.y !== 'number') return;
-        c.x = Math.max(8, Math.min(WORLD_W - 8, m.x));
-        c.y = Math.max(8, Math.min(WORLD_H - 8, m.y));
+        const nx = Math.max(8, Math.min(WORLD_W - 8, m.x)), ny = Math.max(8, Math.min(WORLD_H - 8, m.y));
+        if (c.emote && Math.abs(nx - c.x) + Math.abs(ny - c.y) > 3) { c.emote = null; c.emoteAt = Date.now(); } // walking ends sit/dance/etc.
+        c.x = nx; c.y = ny;
         playersDirty = true;
         break;
       }
@@ -311,6 +320,48 @@ wss.on('connection', ws => {
         const msg = { t: 'chat', n: u.name, text, ts: Date.now() };
         chatLog.push(msg); if (chatLog.length > 60) chatLog.shift();
         broadcast(msg);
+        break;
+      }
+      case 'casino_open': {
+        if (!Casino.info || !['roulette', 'blackjack'].includes(m.game)) return;
+        sendCasino(c, m.game);
+        break;
+      }
+      case 'roulette_spin': {
+        if (Date.now() - (c.lastBet || 0) < 600) return;
+        c.lastBet = Date.now();
+        const r = Casino.rouletteSpin(db, u, m.bets);
+        if (r.error) return err(r.error);
+        touch();
+        send(ws, { t: 'roulette_result', r });
+        setTimeout(() => { sendMe(c); sendCasino(c, 'roulette'); }, 1500);   // let the wheel animation finish before money/stats update
+        break;
+      }
+      case 'bj_deal': case 'bj_hit': case 'bj_stand': case 'bj_double': {
+        if (Date.now() - (c.lastBet || 0) < 250) return;
+        c.lastBet = Date.now();
+        const r = m.t === 'bj_deal' ? Casino.bjDeal(db, u, m.bet) : m.t === 'bj_hit' ? Casino.bjHit(db, u) : m.t === 'bj_stand' ? Casino.bjStand(db, u) : Casino.bjDouble(db, u);
+        if (r.error) return err(r.error);
+        touch(); sendMe(c); sendCasino(c, 'blackjack');
+        break;
+      }
+      case 'emote': {
+        const EMOTES = ['sit', 'dance', 'wave', 'jump', 'spin', 'laugh', 'heart'];
+        if (Date.now() - (c.lastEmote || 0) < 250) return;
+        c.lastEmote = Date.now();
+        c.emote = EMOTES.includes(m.e) ? m.e : null; c.emoteAt = Date.now();
+        playersDirty = true;
+        break;
+      }
+      case 'name_animal': {
+        const kind = m.kind, a = C.ANIMALS[kind];
+        const cap = kind === 'cow' ? 4 : kind === 'sheep' ? 6 : 8;   // same cap the client draws
+        if (!a || !Number.isInteger(m.idx) || m.idx < 0 || m.idx >= Math.min(u.animals[kind] || 0, cap)) return;
+        const name = String(m.name || '').replace(/[^\p{L}\p{N} '_.!-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+        const key = kind + ':' + m.idx;
+        if (name) u.animalNames[key] = name; else delete u.animalNames[key];
+        touch(); sendMe(c); playersDirty = true;
+        ok(name ? 'Named your ' + a.name.toLowerCase() + ' ' + name + '!' : 'Name cleared.');
         break;
       }
       case 'set_stay': {
@@ -579,6 +630,7 @@ wss.on('connection', ws => {
         const a = C.ANIMALS[kind];
         if (!a || !(u.animals[kind] > 0)) return err('No ' + (a ? a.name : 'animal') + ' to process.');
         u.animals[kind]--;
+        for (const k of Object.keys(u.animalNames)) { const [kk, ii] = k.split(':'); if (kk === kind && Number(ii) >= u.animals[kind]) delete u.animalNames[k]; }
         const meatN = kind === 'chicken' ? 1 : 2;
         addProduct('meat', meatN);
         if (kind === 'sheep') addProduct('wool', 1);

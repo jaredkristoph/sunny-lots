@@ -430,6 +430,30 @@ const Vox = (() => {
     else { B.add(0, .26, .3, .32, .24, .16, '#a8c4f0'); B.add(0, .5, .3, .2, .14, .12, '#ffe9a8'); }
     return B;
   }
+  // casino tables (1.8 wide) — green felt, wooden rails
+  function rouletteBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, 1.7, .5, 1.05, '#5a3a1c');                 // base
+    B.add(0, .5, 0, 1.85, .09, 1.2, '#7a5230');               // rail
+    B.add(.3, .59, 0, 1.15, .03, .98, '#1f8a4c');             // felt
+    // wheel (stacked squares read as a disc from the angled camera)
+    B.add(-.62, .59, 0, .62, .07, .62, '#2b1a0c').add(-.62, .66, 0, .5, .03, .5, '#c9a227').add(-.62, .69, 0, .42, .03, .42, '#c0392b').add(-.62, .72, 0, .3, .03, .3, '#1c1c1c').add(-.62, .75, 0, .13, .06, .13, '#f0d060');
+    // number strip + chips
+    for (let i = 0; i < 6; i++) B.add(.02 + i * .2, .62, .3, .16, .02, .14, i % 2 ? '#1c1c1c' : '#c0392b');
+    B.add(.55, .62, -.2, .1, .05, .1, '#f5f5f5').add(.55, .67, -.2, .1, .05, .1, '#e74c3c').add(.3, .62, -.25, .1, .06, .1, '#3498db');
+    return B;
+  }
+  function blackjackBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, 1.7, .5, 1.05, '#5a3a1c');
+    B.add(0, .5, 0, 1.85, .09, 1.2, '#7a5230');
+    B.add(0, .59, 0, 1.7, .03, 1.02, '#1f8a4c');
+    B.add(0, .62, -.34, .5, .02, .16, '#166d3a');            // dealer zone
+    for (const x of [-.55, 0, .55]) B.add(x, .62, .2, .26, .015, .26, '#2fa863');   // bet circles
+    B.add(-.12, .62, -.06, .13, .015, .18, '#ffffff').add(.04, .62, -.06, .13, .015, .18, '#fff8e1').add(.02, .635, -.06, .05, .005, .05, '#c0392b');   // cards
+    B.add(.55, .62, .2, .1, .05, .1, '#1c1c1c').add(.55, .67, .2, .1, .05, .1, '#f1c40f').add(-.55, .62, .2, .1, .06, .1, '#e74c3c');
+    return B;
+  }
   function penFence(w, h) {
     const B = mk();
     const post = '#f1f3f5', rail = '#dee2e6';
@@ -582,5 +606,5 @@ const Vox = (() => {
     return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
   }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, modelHomeCottage, modelHomeBase, modelHomeShell };
+  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

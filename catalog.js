@@ -197,6 +197,11 @@ const WORLD = {
     sheep: { x: 6, y: 26, w: 4, h: 2 },
   },
   park: { x: 22, y: 24, w: 10, h: 5 },
+  // Sunny Casino — two tables east of the park (min bet 50, see casino.js)
+  casino: [
+    { id: 'roulette', name: 'Roulette Table', x: 55, y: 30 },
+    { id: 'blackjack', name: 'Blackjack Table', x: 55, y: 35 },
+  ],
   bushes: [
     { id: 'b1', x: 36, y: 25 }, { id: 'b2', x: 40, y: 27 }, { id: 'b3', x: 48, y: 26 },
     { id: 'b4', x: 54, y: 8 }, { id: 'b5', x: 54, y: 20 }, { id: 'b6', x: 18, y: 37 },
@@ -228,6 +233,23 @@ for (let i = 0; i < 8; i++) {
 }
 // NPC model home (20) — south of house lots, clear of expansions (needs height ≥ 66)
 WORLD.lands.push({ x: 28, y: 54, house: true, npc: true });
+// Jar Sea — a sea in the south-west corner, clear of house lots (y<=52) and the model home (x>=28).
+// Shipped to the client as a precomputed tile list ("x,y") so both sides agree on the shoreline.
+WORLD.sea = { name: 'Jar Sea', tiles: [] };
+for (let ty = 0; ty < WORLD.height; ty++) {
+  for (let tx = 0; tx < WORLD.width; tx++) {
+    const eastShore = 20 + Math.round(2.2 * Math.sin(ty * 0.75) + 1.2 * Math.sin(ty * 0.31 + 1));
+    const northShore = 58 + Math.round(1.6 * Math.sin(tx * 0.5) + 1.0 * Math.sin(tx * 0.21 + 2));
+    if (tx < eastShore && ty >= northShore) WORLD.sea.tiles.push(tx + ',' + ty);
+  }
+}
+{ // drop stray single tiles so the shoreline has no little puddles
+  const set = new Set(WORLD.sea.tiles);
+  WORLD.sea.tiles = WORLD.sea.tiles.filter(k => {
+    const [x, y] = k.split(',').map(Number);
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => set.has((x + dx) + ',' + (y + dy)) || x + dx < 0 || y + dy >= WORLD.height).length >= 2;
+  });
+}
 WORLD.width = 74;
 WORLD.height = 66;
 

@@ -107,8 +107,10 @@
     const o = players[p.n];
     if (!o) players[p.n] = { n: p.n, x: p.x, y: p.y, rx: p.x, ry: p.y, a: p.a, psi: view.yaw + PI, walk: 0, say: null };
     else { o.x = p.x; o.y = p.y; o.a = p.a; }
-    Object.assign(players[p.n], {
-      animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+    const po = players[p.n];
+    if (po.es !== p.es) { po.es = p.es; po.emote = p.e || null; po.emoteSince = performance.now(); }   // new emote (or cleared)
+    Object.assign(po, {
+      animalNames: p.animalNames || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
       land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
     });
   }
@@ -143,6 +145,8 @@
       case 'land_stats':
         if (lands[m.land]) lands[m.land].stats = m.stats || lands[m.land].stats;
         break;
+      case 'casino_info': casino.info[m.game] = m; if (m.game === 'blackjack') casino.bj = m.bj || null; if (!casino.spinning) casinoRefresh(); break;
+      case 'roulette_result': rouletteResult(m.r); break;
       case 'chat': addChat(m); if (m.n === myName) self.say = { text: m.text, until: Date.now() + 6000 }; else if (players[m.n]) players[m.n].say = { text: m.text, until: Date.now() + 6000 }; break;
       case 'sys': addChat({ sys: true, text: m.text }); break;
       case 'err': toast(m.msg, true); break;
@@ -386,12 +390,25 @@
     return tx >= P.x && tx < P.x + P.w && ty >= P.y && ty < P.y + P.h;
   }
   const isMargin = (tx, ty) => tx < 2 || ty < 2 || tx >= WD.width - 2 || ty >= WD.height - 2;
-  const blocked = (x, y) => x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2;
+  // ---- Jar Sea: water tiles, sand beach and a dock (walkable) ----
+  const seaSet = new Set((WD.sea && WD.sea.tiles) || []);
+  const isSea = (tx, ty) => seaSet.has(tx + ',' + ty);
+  const seaOrEdge = (tx, ty) => tx < 0 || ty < 0 || tx >= WD.width || ty >= WD.height || isSea(tx, ty);
+  const nearSea = (tx, ty) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isSea(tx + dx, ty + dy)) return true; return false; };
+  const WATER = ['#2f8fd0', '#3a9cd9', '#46a9e2', '#52b4ea', '#63c0f0'];
+  const dockSet = new Set(), DOCK_X = 10;
+  { let sy = null; for (let y = 0; y < WD.height; y++) if (isSea(DOCK_X, y)) { sy = y; break; }
+    if (sy != null) for (let y = sy - 1; y <= sy + 3; y++) dockSet.add(DOCK_X + ',' + y); }
+  const seaCenter = (() => { let sx = 0, sz = 0, n = 0; for (const k of seaSet) { const [x, z] = k.split(',').map(Number); sx += x; sz += z; n++; } return n ? { x: sx / n + .5, z: sz / n + .5 } : null; })();
+  const blocked = (x, y) => (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
+    || (seaSet.size > 0 && isSea(Math.floor(x / TILE), Math.floor(y / TILE)) && !dockSet.has(Math.floor(x / TILE) + ',' + Math.floor(y / TILE)));
 
   // static scenery (built once from boxes)
   const statics = [];
   const piece = (B, x, z, r) => statics.push({ B, x, z, r: r || 1 });
+  const SEAT = Vox.mk().add(0, 0, 0, .34, .13, .34, '#a0703c').add(0, .13, 0, .4, .03, .4, '#c99a62');   // little stool under a sitting player
   for (let ty = 0; ty < WD.height; ty++) for (let tx = 0; tx < WD.width; tx++) {
+    if (nearSea(tx, ty)) continue;
     if (isMargin(tx, ty) && ((tx * 7 + ty * 13) % 5 === 0)) {
       const B = Vox.mk(), v = (tx * 3 + ty) % 3, hgt = .5 + v * .12;
       B.add(0, 0, 0, .2, hgt, .2, '#7a5230').add(0, hgt - .1, 0, .76, .36, .76, '#3f9a45').add(0, hgt + .2, 0, .54, .3, .54, '#4fae44').add(0, hgt + .45, 0, .3, .22, .3, '#5bbd5c');
@@ -453,8 +470,17 @@
     piece(Vox.plantBoxes(cat.SEED_BY.pumpkin, 3, false), S.x - .5, S.y + S.h + .1, .6);
     piece(Vox.plantBoxes(cat.SEED_BY.sunflower, 3, false), S.x + S.w + .5, S.y + S.h + .1, .6);
   })();
+  for (const k of dockSet) {   // wooden dock: planks, side rails, posts
+    const [dx, dy] = k.split(',').map(Number), end = !dockSet.has(dx + ',' + (dy + 1));
+    const B = Vox.mk();
+    B.add(0, .02, 0, .92, .08, 1, '#a97c50').add(-.3, .1, 0, .22, .015, .96, '#b98a5c').add(.1, .1, 0, .22, .015, .96, '#9a6e44');
+    B.add(-.46, .02, -.5, .08, .3, .08, '#6b4423').add(.46, .02, -.5, .08, .3, .08, '#6b4423');
+    if (end) B.add(-.46, .02, .5, .08, .3, .08, '#6b4423').add(.46, .02, .5, .08, .3, .08, '#6b4423');
+    piece(B, dx + .5, dy + .5, 1);
+  }
   (function buildPOIs() {
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
+    for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
       piece(Vox.penFence(p.w - .4, p.h - .4), p.x + p.w / 2, p.y + p.h / 2, Math.max(p.w, p.h));
       piece(Vox.animalBoxes(id), p.x + p.w / 2, p.y + p.h / 2, 1.2);
@@ -500,6 +526,15 @@
       const pp = postPos(i);
       if (Math.hypot(g0.x - pp.x, g0.z - pp.z) < .7) return { post: i };
     }
+    // livestock: click the animal itself (screen-space box around the sprite)
+    { let cb = null;
+      for (const c of critters) {
+        if (!c.live) continue;
+        const f = view.toScreen(c.x, 0, c.z), tp = view.toScreen(c.x, c.kind === 'cow' ? 1.1 : .9, c.z), hw = Math.max(14, view.ppt * .4);
+        if (Math.abs(bx - f[0]) < hw && by < f[1] + 6 && by > tp[1] - 4 && (!cb || f[2] < cb.d)) cb = { c, d: f[2] };
+      }
+      if (cb) return { critter: cb.c }; }
+    for (const t of (WD.casino || [])) if (Math.hypot(g0.x - t.x, g0.z - t.y) < 1.4) return { casino: t };
     // POIs (stalls / pens / pet shop / bushes / park)
     for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
     if (WD.petShop && g0.x > WD.petShop.x && g0.x < WD.petShop.x + WD.petShop.w && g0.z > WD.petShop.y && g0.z < WD.petShop.y + WD.petShop.h) return { petShop: true };
@@ -524,7 +559,7 @@
     // buy adjacent square for starter land expand
     const wx = Math.floor(g.x), wy = Math.floor(g.z);
     if (me && me.land != null && !(WD.lands[me.land] && WD.lands[me.land].expand)
-        && landGrid[wy] && landGrid[wy][wx] < 0 && !inPark(wx, wy) && isAdjToMyLand(wx, wy)) {
+        && landGrid[wy] && landGrid[wy][wx] < 0 && !inPark(wx, wy) && !isSea(wx, wy) && isAdjToMyLand(wx, wy)) {
       return { buySquare: true, wx, wy };
     }
     return null;
@@ -534,6 +569,8 @@
     const [bx, by] = toBuf(cx, cy), hit = pickAt(bx, by);
     if (!hit) return;
     if (hit.shop) return tryShop();
+    if (hit.critter) return openCritter(hit.critter);
+    if (hit.casino) return openCasino(hit.casino.id);
     if (hit.post != null) return openLandPost(hit.post);
     if (hit.stall) return openStall(hit.stall);
     if (hit.petShop) return openPetShop();
@@ -675,6 +712,169 @@
         toast(ok ? 'Nice run!' : 'Try again next time', !ok);
       } }, 'Play ' + gname)));
   }
+  const CRITTER_ICON = { chicken: '🐔', cow: '🐄', sheep: '🐑' };
+  function openCritter(c) {
+    c._shownUntil = Date.now() + 6000;
+    const a = cat.ANIMALS[c.kind], label = a ? a.name : c.kind, icon = CRITTER_ICON[c.kind] || '🐾';
+    if (c.owner !== myName) {
+      return openModal(icon + ' ' + label, () => h('div', { class: 'center' },
+        h('div', { style: 'font-size:24px;font-weight:900' }, c.name || ('Unnamed ' + label.toLowerCase())),
+        h('div', { class: 'muted' }, c.owner + "'s " + label.toLowerCase())));
+    }
+    openModal(icon + ' Name your ' + label.toLowerCase(), () => {
+      const inp = h('input', { class: 'txt', type: 'text', maxlength: 14, placeholder: 'e.g. Clucky', value: c.name || '' });
+      const save = () => { send({ t: 'name_animal', kind: c.kind, idx: c.idx, name: inp.value }); closeModal(); };
+      inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+      setTimeout(() => inp.focus(), 30);
+      return h('div', { class: 'center' }, inp,
+        h('div', { class: 'row', style: 'justify-content:center;gap:8px;margin-top:10px' },
+          h('button', { class: 'btn green', onclick: save }, 'Save name'),
+          c.name ? h('button', { class: 'btn', onclick: () => { inp.value = ''; save(); } }, 'Clear') : null),
+        h('div', { class: 'muted', style: 'margin-top:8px' }, 'Other players can see this name when they click your ' + label.toLowerCase() + '.'));
+    });
+  }
+  // ---------- emotes ----------
+  const EMOTES = [['sit', '🪑 Sit'], ['dance', '💃 Dance'], ['wave', '👋 Wave'], ['jump', '🦘 Jump'], ['spin', '🌀 Spin'], ['laugh', '😂 Laugh'], ['heart', '❤️ Love']];
+  const EMOTE_ONCE = new Set(['wave', 'jump', 'spin', 'laugh', 'heart']);   // sit + dance last until you move
+  function doEmote(id) {
+    if (id && id === self.emote && !EMOTE_ONCE.has(id)) id = null;           // press again to stand up / stop
+    self.emote = id || null; self.emoteAt = performance.now();
+    send({ t: 'emote', e: self.emote });
+  }
+  function openEmotes() {
+    openModal('😀 Emotes', () => h('div', {},
+      h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px;justify-content:center' },
+        EMOTES.map(([id, lab]) => h('button', { class: 'btn', onclick: () => { closeModal(); doEmote(id); } }, lab))),
+      h('div', { class: 'muted', style: 'margin-top:10px;text-align:center' }, 'Sit and dance last until you walk. Quick chat: /sit /dance /wave /jump /spin /laugh /heart')));
+  }
+  $('#b-emote').onclick = openEmotes;
+  function emoteFx(emote, et, sx, sy) {
+    const ic = emote === 'wave' ? '👋' : emote === 'laugh' ? '😂' : emote === 'heart' ? '❤️' : emote === 'sit' ? '💤' : emote === 'dance' ? (Math.floor(et * 3) % 2 ? '🎶' : '🎵') : '';
+    if (!ic) return;
+    lctx.font = '20px sans-serif'; lctx.textAlign = 'center'; lctx.fillText(ic, sx + 22, sy - 20 - ((et * 28) % 12)); lctx.textAlign = 'left';
+  }
+  // ---------- 🎰 Sunny Casino: roulette + blackjack (min bet $50; all outcomes decided by the server) ----------
+  const MIN_BET = 50;
+  const RED_NUMS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+  const rColor = n => n === 0 ? '#1f8a4c' : RED_NUMS.has(n) ? '#c0392b' : '#222';
+  const casino = { game: null, tab: 'play', info: {}, bj: null, chip: 50, bets: {}, order: [], last: null, spinning: false, wheelEl: null };
+  const CASINO_TITLE = { roulette: '🎡 Roulette Table', blackjack: '🃏 Blackjack Table' };
+  function openCasino(game) {
+    casino.game = game; casino.tab = 'play'; casino.last = null; casino.spinning = false;
+    send({ t: 'casino_open', game });
+    openModal(CASINO_TITLE[game], buildCasino);
+    modalClose = () => { casino.game = null; casino.spinning = false; clearInterval(casino.iv); };
+  }
+  const casinoRefresh = () => { if (casino.game && modalRefresh) modalRefresh(); };
+  const chipAmount = () => {
+    const v = Math.floor(Number(casino.chip));
+    if (!(v >= MIN_BET)) { toast('Minimum bet is ' + money(MIN_BET) + '.', true); return 0; }
+    return v;
+  };
+  function chipPicker() {
+    const inp = h('input', { class: 'txt', type: 'number', min: MIN_BET, step: 10, value: casino.chip, style: 'width:110px' });
+    inp.oninput = () => { casino.chip = inp.value; };
+    return h('div', { class: 'row', style: 'justify-content:center;align-items:center' },
+      [50, 100, 250, 500, 1000].map(v => h('button', { class: 'btn sm' + (Number(casino.chip) === v ? ' green' : ''), onclick: () => { casino.chip = v; casinoRefresh(); } }, '$' + v)),
+      inp);
+  }
+  function casinoStats(info) {
+    if (!info) return h('div', { class: 'muted' }, 'Loading…');
+    const s = info.stats, ret = s.wagered ? Math.round(s.paid / s.wagered * 1000) / 10 + '%' : '—';
+    const cell = (k, v) => h('div', { style: 'background:#fff;border:2px solid #e3c88a;border-radius:10px;padding:6px 10px;text-align:center' }, h('div', { class: 'muted', style: 'font-size:12px' }, k), h('b', {}, v));
+    const rows = (info.top || []).map((r, i) => h('div', { class: 'lrow', style: r.n === myName ? 'background:#fff1c9' : '' },
+      h('b', { style: 'width:28px' }, '#' + (i + 1)), h('div', { class: 'grow' }, r.n, h('div', { class: 'muted', style: 'font-size:12px' }, r.bets + ' bets · ' + money(r.wagered) + ' wagered')),
+      h('b', { style: 'color:' + (r.net >= 0 ? '#2b8a3e' : '#c92a2a') }, (r.net >= 0 ? '+' : '−') + money(Math.abs(r.net)))));
+    return h('div', {},
+      h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:10px' },
+        cell('Rounds played', s.rounds.toLocaleString()), cell('Bets placed', s.bets.toLocaleString()), cell('Total wagered', money(s.wagered)),
+        cell('Paid out', money(s.paid)), cell('Return to players', ret), cell('Players', s.players),
+        cell('Biggest win', s.biggest && s.biggest.n ? money(s.biggest.amount) + ' · ' + s.biggest.n : '—')),
+      h('b', {}, '🏆 Top 10 players (by net winnings)'),
+      h('div', { class: 'list', style: 'margin-top:6px' }, rows.length ? rows : h('div', { class: 'muted' }, 'No bets yet — be the first!')),
+      info.me && info.me.rank > 10 ? h('div', { class: 'muted' }, 'You: #' + info.me.rank + ' · ' + (info.me.net >= 0 ? '+' : '−') + money(Math.abs(info.me.net))) : null);
+  }
+  function buildCasino() {
+    const g = casino.game, info = casino.info[g];
+    const tabBtn = (id, lab) => h('button', { class: 'tab' + (casino.tab === id ? ' on' : ''), onclick: () => { casino.tab = id; casinoRefresh(); } }, lab);
+    return h('div', {},
+      h('div', { class: 'tabs' }, tabBtn('play', '🎲 Play'), tabBtn('info', 'ℹ️ Info & Top 10')),
+      h('div', { class: 'muted', style: 'text-align:center;margin:4px 0' }, 'Minimum bet ' + money(MIN_BET) + ' · You have ' + money(me.money)),
+      casino.tab === 'info' ? casinoStats(info) : (g === 'roulette' ? buildRoulette(info) : buildBlackjack()));
+  }
+  // --- roulette ---
+  const BOARD_OUTSIDE = [['dozen:1', '1st 12', '#2f9e44'], ['dozen:2', '2nd 12', '#2f9e44'], ['dozen:3', '3rd 12', '#2f9e44'],
+    ['low', '1–18', '#868e96'], ['even', 'Even', '#868e96'], ['red', 'Red', '#c0392b'], ['black', 'Black', '#222'], ['odd', 'Odd', '#868e96'], ['high', '19–36', '#868e96']];
+  function placeBet(key) {
+    if (casino.spinning) return;
+    const amt = chipAmount(); if (!amt) return;
+    const total = Object.values(casino.bets).reduce((a, b) => a + b, 0);
+    if (!casino.bets[key] && Object.keys(casino.bets).length >= 16) return toast('That is plenty of bets!', true);
+    if (total + amt > me.money) return toast('Not enough money for that chip.', true);
+    casino.bets[key] = (casino.bets[key] || 0) + amt; casino.order.push([key, amt]); casinoRefresh();
+  }
+  function buildRoulette(info) {
+    const total = Object.values(casino.bets).reduce((a, b) => a + b, 0);
+    const cell = (key, label, color, extra) => h('button', {
+      class: 'btn sm', style: 'position:relative;background:' + color + ';color:#fff;padding:7px 2px;min-width:0;' + (extra || ''), onclick: () => placeBet(key),
+    }, label, casino.bets[key] ? h('span', { style: 'position:absolute;top:-6px;right:-4px;background:#ffd43b;color:#222;border-radius:9px;font-size:10px;padding:0 4px;border:1px solid #7a5230' }, '$' + casino.bets[key]) : null);
+    const wheel = h('div', { style: 'width:92px;height:92px;border-radius:50%;border:6px solid #c9a227;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:900;color:#fff;background:' + (casino.last ? rColor(casino.last.n) : '#444') }, casino.last ? String(casino.last.n) : '?');
+    casino.wheelEl = wheel;
+    const hist = (info && info.history || []).slice().reverse().map(n => h('span', { style: 'display:inline-block;min-width:24px;text-align:center;border-radius:6px;color:#fff;font-weight:700;font-size:12px;padding:2px 4px;background:' + rColor(n) }, n));
+    const nums = []; for (let r = 0; r < 3; r++) for (let c = 0; c < 12; c++) { const n = c * 3 + (3 - r); nums.push(cell('num:' + n, n, rColor(n))); }
+    const L = casino.last;
+    const outcome = L ? h('div', { style: 'text-align:center;font-weight:800;color:' + (L.net > 0 ? '#2b8a3e' : L.net < 0 ? '#c92a2a' : '#555') },
+      'Ball landed on ' + L.n + ' (' + L.color + ') · ' + (L.net > 0 ? 'you won ' + money(L.net) : L.net < 0 ? 'you lost ' + money(-L.net) : 'you broke even')) : null;
+    return h('div', { class: 'center', style: 'gap:8px' },
+      h('div', { class: 'row', style: 'align-items:center;justify-content:center;gap:12px' }, wheel, h('div', { style: 'max-width:260px;display:flex;flex-wrap:wrap;gap:3px' }, hist.length ? hist : h('span', { class: 'muted' }, 'No spins yet'))),
+      outcome, chipPicker(),
+      h('div', { style: 'display:grid;grid-template-columns:repeat(12,1fr);gap:3px;width:100%' }, cell('num:0', '0', rColor(0), 'grid-column:1/-1'), nums),
+      h('div', { style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:100%' }, BOARD_OUTSIDE.map(([k, l, c]) => cell(k, l, c))),
+      h('div', { class: 'muted', style: 'font-size:12px' }, 'Number pays 35:1 · dozens 2:1 · red/black, odd/even, low/high 1:1 · 0 beats all outside bets'),
+      h('div', { class: 'row', style: 'justify-content:center;gap:8px' },
+        h('button', { class: 'btn', disabled: casino.spinning || !casino.order.length, onclick: () => { const [k, a] = casino.order.pop(); casino.bets[k] -= a; if (!casino.bets[k]) delete casino.bets[k]; casinoRefresh(); } }, 'Undo'),
+        h('button', { class: 'btn', disabled: casino.spinning || !total, onclick: () => { casino.bets = {}; casino.order = []; casinoRefresh(); } }, 'Clear'),
+        h('button', { class: 'btn green', disabled: casino.spinning || !total || total > me.money, onclick: () => {
+          casino.spinning = true; casinoRefresh();
+          send({ t: 'roulette_spin', bets: Object.entries(casino.bets).map(([k, a]) => { const [type, v] = k.split(':'); return v === undefined ? { type, amount: a } : { type, value: Number(v), amount: a }; }) });
+          setTimeout(() => { if (casino.spinning && !casino.iv2) { casino.spinning = false; casinoRefresh(); } }, 4000);   // safety if the server refused the bet
+        } }, casino.spinning ? 'Spinning…' : 'Spin · ' + money(total))));
+  }
+  function rouletteResult(r) {
+    if (!casino.game) return;   // modal closed: just show a toast when it lands
+    casino.iv2 = true; let ticks = 0;
+    clearInterval(casino.iv);
+    casino.iv = setInterval(() => {
+      ticks++;
+      const n = ticks > 17 ? r.n : Math.floor(Math.random() * 37);
+      if (casino.wheelEl) { casino.wheelEl.textContent = n; casino.wheelEl.style.background = rColor(n); }
+      if (ticks > 17) { clearInterval(casino.iv); casino.iv2 = false; casino.last = r; casino.spinning = false; casinoRefresh(); toast(r.net > 0 ? '🎉 ' + r.n + ' — you won ' + money(r.net) : r.n + ' ' + r.color + ' — you lost ' + money(-r.net), r.net < 0); }
+    }, 80);
+  }
+  // --- blackjack ---
+  function cardEl(c) {
+    if (!c) return h('div', { style: 'width:44px;height:62px;border-radius:6px;border:2px solid #1c3d6e;background:repeating-linear-gradient(45deg,#3b5bdb,#3b5bdb 4px,#4c6ef5 4px,#4c6ef5 8px)' });
+    const red = c.s === '♥' || c.s === '♦';
+    return h('div', { style: 'width:44px;height:62px;border-radius:6px;border:2px solid #999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:17px;line-height:1.1;color:' + (red ? '#c92a2a' : '#222') }, c.r, h('span', { style: 'font-size:18px' }, c.s));
+  }
+  const BJ_TEXT = { win: ['You win!', '#2b8a3e'], blackjack: ['Blackjack! Pays 3:2', '#2b8a3e'], lose: ['Dealer wins', '#c92a2a'], push: ['Push — bet returned', '#555'] };
+  function buildBlackjack() {
+    const bj = casino.bj, playing = bj && bj.status === 'playing';
+    const hand = (label, cards, val) => h('div', { class: 'center', style: 'gap:4px' }, h('div', { class: 'muted' }, label + (val != null ? ' · ' + val : '')), h('div', { class: 'row', style: 'justify-content:center;flex-wrap:nowrap' }, cards.map(cardEl)));
+    const res = bj && !playing ? BJ_TEXT[bj.status] : null;
+    const bet = () => { const amt = chipAmount(); if (amt) send({ t: 'bj_deal', bet: amt }); };
+    return h('div', { class: 'center', style: 'gap:10px;background:#1f8a4c;border-radius:14px;padding:12px;color:#fff' },
+      bj ? hand('Dealer', bj.dealer, playing ? bj.dv + '+?' : bj.dv) : h('div', { style: 'opacity:.85' }, 'Dealer stands on 17 · Blackjack pays 3:2'),
+      bj ? hand('You', bj.player, bj.pv) : null,
+      bj ? h('div', { style: 'font-weight:800' }, 'Bet ' + money(bj.bet)) : null,
+      res ? h('div', { style: 'background:#fff;color:' + res[1] + ';border-radius:10px;padding:6px 14px;font-weight:900' }, res[0] + (bj.status === 'lose' ? '' : ' · returned ' + money(bj.payout))) : null,
+      playing ? h('div', { class: 'row', style: 'justify-content:center;gap:8px' },
+        h('button', { class: 'btn green', onclick: () => send({ t: 'bj_hit' }) }, 'Hit'),
+        h('button', { class: 'btn', onclick: () => send({ t: 'bj_stand' }) }, 'Stand'),
+        h('button', { class: 'btn', disabled: !bj.canDouble, onclick: () => send({ t: 'bj_double' }) }, 'Double')) :
+        h('div', { class: 'center', style: 'gap:8px;background:#fff;color:#222;border-radius:12px;padding:10px;width:100%' }, chipPicker(),
+          h('button', { class: 'btn green', disabled: me.money < MIN_BET, onclick: bet }, bj ? 'Deal again' : 'Deal')));
+  }
   function openLandPost(i) {
     const L = lands[i]; if (!L) return;
     const st = L.stats || { harvested: 0, growTime: 0, value: 0 };
@@ -759,7 +959,9 @@
       if (document.activeElement === ci) {
         e.preventDefault();
         const t = ci.value.trim();
-        if (t) send({ t: 'chat', text: t });
+        const slash = t.startsWith('/') ? t.slice(1).toLowerCase() : null;
+        if (slash && (EMOTES.some(x => x[0] === slash) || slash === 'stand')) doEmote(slash === 'stand' ? null : slash);
+        else if (t) send({ t: 'chat', text: t });
         ci.value = '';
         // stay focused so you can keep chatting without pressing Enter again
         requestAnimationFrame(() => ci.focus());
@@ -773,6 +975,7 @@
     if (k === 'f') tryShop();
     if (k === 'b') openBag();
     if (k === 'i') openWardrobe();
+    if (k === 'g') openEmotes();
     if (k === 'q') rotate(-1);
     if (k === 'e') rotate(1);
     if (k.startsWith('arrow')) e.preventDefault();
@@ -922,14 +1125,14 @@
     const next = new Map();
     const owners = [];
     if (me) owners.push({
-      n: myName, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
+      n: myName, animalNames: me.animalNames || {}, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
       land: me.land, houseLand: me.houseLand, expandLand: me.expandLand,
       px: self.x / TILE, pz: self.y / TILE, follow: true,
     });
     for (const n in players) {
       const p = players[n];
       owners.push({
-        n: p.n, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+        n: p.n, animalNames: p.animalNames || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
         land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
         px: (p.rx || p.x) / TILE, pz: (p.ry || p.y) / TILE, follow: false,
       });
@@ -949,6 +1152,7 @@
             if (!c.tx) { const t = pickRoamTarget(aOrigin); c.x = t.tx; c.z = t.tz; c.tx = t.tx; c.tz = t.tz; }
             // keep inside current lot
             c._ox = aOrigin.x; c._oy = aOrigin.y; c._roam = true;
+            c.live = true; c.owner = own.n; c.idx = i; c.name = (own.animalNames || {})[kind + ':' + i] || '';
           }
         }
       }
@@ -1020,6 +1224,7 @@
       if (stick.active) { ix += stick.x; iy += stick.y; }
     }
     const moving = Math.hypot(ix, iy) > .08;
+    if (self.emote && (moving || (EMOTE_ONCE.has(self.emote) && performance.now() - self.emoteAt > 3000))) { self.emote = null; send({ t: 'emote', e: null }); }
     if (moving) {
       // HD-2D camera sits on +yaw; screen-up is into the scene (−sin/−cos)
       const s = Math.sin(view.yaw), c = Math.cos(view.yaw);
@@ -1048,12 +1253,19 @@
       const chk = (tx + tz) & 1; let col;
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
-      if (inPark(tx, tz)) col = chk ? '#c8efc0' : '#b8e6b0';
+      if (isSea(tx, tz)) { const wv = Math.sin(t * 1.3 + tx * .6 + tz * .4) + Math.sin(t * .9 - tx * .35 + tz * .7); col = WATER[Math.max(0, Math.min(4, Math.round((wv + 2))))]; }
+      else if (li < 0 && nearSea(tx, tz)) col = chk ? '#f3e3ae' : '#ecd99d';   // sand beach
+      else if (inPark(tx, tz)) col = chk ? '#c8efc0' : '#b8e6b0';
       else if (houseFloor) col = chk ? '#f5e6c8' : '#ead9b4';
       else if (li >= 0) col = chk ? '#d4f2b8' : '#c6eaa8';
       else if (isMargin(tx, tz)) col = chk ? '#b5e0a8' : '#a8d69c';
       else col = chk ? '#e8dcc8' : '#d9cdb8'; // soft cobble lane
       view.quad(tx, tz, tx + 1, tz + 1, 0.0, col);
+      if (isSea(tx, tz)) {
+        const shore = !seaOrEdge(tx - 1, tz) || !seaOrEdge(tx + 1, tz) || !seaOrEdge(tx, tz - 1) || !seaOrEdge(tx, tz + 1);
+        if (shore) view.quad(tx, tz, tx + 1, tz + 1, 0.006, 'rgba(255,255,255,' + (0.26 + 0.14 * Math.sin(t * 2 + tx + tz)).toFixed(2) + ')');   // foam
+        else if (((tx * 7 + tz * 13 + Math.floor(t * 1.2)) % 9) === 0) view.quad(tx + .25, tz + .4, tx + .75, tz + .52, 0.006, 'rgba(255,255,255,.5)');   // sparkle
+      }
     }
     // land floors: soil under plants, house planks, faint grid on my land (raised to avoid Z-fight)
     const fpsi = fpsiFor(view.yaw);
@@ -1114,15 +1326,21 @@
       const p = players[n], ddx = p.x - p.rx, ddy = p.y - p.ry; p.rx += ddx * .25; p.ry += ddy * .25;
       const mv = Math.abs(ddx) + Math.abs(ddy) > 1.5;
       if (mv) { p.walk += dt * 11; p.psi += angDiff(p.psi, Math.atan2(ddx, ddy)) * Math.min(1, dt * 14); }
-      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.05, p.walk, mv); list.push(p);
+      const pe = !mv && p.emote && (!EMOTE_ONCE.has(p.emote) || performance.now() - p.emoteSince < 3000) ? p.emote : null;
+      p._fx = pe; p._fxt = (performance.now() - (p.emoteSince || 0)) / 1000;
+      if (pe === 'sit') view.add(SEAT, p.rx / TILE, 0, p.ry / TILE, 0, 1);
+      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.05, p.walk, mv, { pump: { speed: 2.4, amp: .022, ph: p.n.length }, emote: pe, et: p._fxt }); list.push(p);
     }
-    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving);
+    const myFxT = (performance.now() - (self.emoteAt || 0)) / 1000;
+    if (self.emote === 'sit') view.add(SEAT, self.x / TILE, 0, self.y / TILE, 0, 1);
+    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving, { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT });
     updateCritters(dt);
     for (const c of critters) {
       const sc = c.pet ? 0.85 : (c.kind === 'cow' ? 1.15 : 0.95);
       const cm = (c._follow && Math.hypot((c._fx || c.x) - c.x, (c._fz || c.z) - c.z) > 0.08)
         || (c._roam && Math.hypot(c.tx - c.x, c.tz - c.z) > 0.12);
-      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm });
+      if (c._ph == null) c._ph = Math.random() * 6.28;
+      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm, pump: c.kind === 'chicken' && !c.pet ? { speed: 6.5, amp: .09, ph: c._ph } : null });
     }
     view.flush();
     view.finish();
@@ -1150,12 +1368,30 @@
     lctx.font = 'bold 18px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#6b1a0d'; lctx.strokeText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.fillStyle = '#fff3c4'; lctx.fillText('🏪 SUNNY SHOP', sc[0], sc[1]); lctx.textAlign = 'left';
     if (nearShop() && !modalOpen()) tag('Press F or click the shop', sc[0], sc[1] + 20, '#ffe066');
     for (const s of (WD.stalls || [])) { const p = toPage(s.x, 1.1, s.y); if (p[0] > -40 && p[0] < vw + 40) tag(s.name, p[0], p[1], '#ffe8a3'); }
+    if (seaCenter && WD.sea) {
+      const sp = toPage(seaCenter.x, 0, seaCenter.z);
+      if (sp[0] > -120 && sp[0] < vw + 120 && sp[1] > -60 && sp[1] < vh + 60) {
+        const nm = '🌊 ' + String(WD.sea.name || 'Sea').toUpperCase();
+        lctx.font = 'bold 20px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#0b3d66'; lctx.strokeText(nm, sp[0], sp[1]); lctx.fillStyle = '#e8f7ff'; lctx.fillText(nm, sp[0], sp[1]); lctx.textAlign = 'left';
+      }
+    }
+    if (WD.casino && WD.casino.length) {
+      for (const t of WD.casino) { const p = toPage(t.x, 1.3, t.y); if (p[0] > -40 && p[0] < vw + 40) tag(t.name, p[0], p[1], '#ffe8a3'); }
+      const mid = toPage(WD.casino[0].x, 2.3, (WD.casino[0].y + WD.casino[WD.casino.length - 1].y) / 2);
+      lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
+    }
     if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
     WD.lands.forEach((o, i) => { const pp = postPos(i), p = toPage(pp.x, 1.15, pp.z); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
-    for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
-    { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
+    for (const c of critters) {
+      if (!c.live || !c.name) continue;
+      const near = Math.hypot(c.x - self.x / TILE, c.z - self.y / TILE) < 4;
+      if (!(near || c._shownUntil > Date.now() || (hoverTile && hoverTile.critter === c))) continue;
+      const s = toPage(c.x, c.kind === 'cow' ? 1.35 : 1.1, c.z); tag(c.name, s[0], s[1], '#ffe8a3');
+    }
+    for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
+    { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
     let hint = isPhoneUI()
       ? 'Stick to move · tap 🚶/🏃 to toggle · swipe right to look'
@@ -1164,6 +1400,8 @@
     else if (hoverTile) {
       if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name;
       else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
+      else if (hoverTile.casino) hint = 'Click: ' + hoverTile.casino.name + ' (min bet ' + money(MIN_BET) + ')';
+      else if (hoverTile.critter) hint = hoverTile.critter.owner === myName ? 'Click: name your ' + hoverTile.critter.kind : 'Click: see this ' + hoverTile.critter.kind + "'s name";
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
       else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';

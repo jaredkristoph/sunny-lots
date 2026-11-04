@@ -91,6 +91,25 @@ function blobShadowTex() {
   return _blobShadowTex;
 }
 
+/** Soft rounded cast-shadow shape: darkest in the middle, feathered edges, one flat tint (no radial "blob" look). */
+let _castShadowTex = null;
+function castShadowTex() {
+  if (_castShadowTex) return _castShadowTex;
+  const W = 128, H = 128, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const layers = 9;
+  for (let i = 0; i < layers; i++) {      // nested rounded rects = feathered edge, ~0.36 alpha at the core
+    const inset = 3 + i * 5, r = Math.max(4, 34 - i * 3);
+    g.fillStyle = 'rgba(36,26,52,0.04)';
+    g.beginPath(); g.roundRect(inset, inset, W - inset * 2, H - inset * 2, r); g.fill();
+  }
+  _castShadowTex = new THREE.CanvasTexture(c);
+  _castShadowTex.colorSpace = THREE.SRGBColorSpace;
+  _castShadowTex.needsUpdate = true;
+  return _castShadowTex;
+}
+
 /** 1px dark outline so paper-doll sprites read as flat 2D. */
 function inkOutline(g, w, h) {
   const src = g.getImageData(0, 0, w, h);
@@ -262,10 +281,10 @@ class View {
     this.camera.up.set(0, 1, 0);
 
     // warmer key + cooler fill so blob shadows read like HD-2D daylight
-    this.hemi = new THREE.HemisphereLight(0xfff4e8, 0x9ecf90, 1.05);
+    this.hemi = new THREE.HemisphereLight(0xfff4e8, 0x9ecf90, 1.15);
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffe8c8, 1.35);
-    this.sun.position.set(18, 28, 10);
+    this.sun.position.set(-10, 28, 10);   // light from the upper-left of the default view → shadows fall to the right
     this.sun.castShadow = false;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
@@ -294,15 +313,17 @@ class View {
     this._spriteUsed = 0;
     this._shadowUsed = 0;
     this._shadowMat = new THREE.MeshBasicMaterial({
-      map: blobShadowTex(),
+      map: castShadowTex(),
       transparent: true,
       opacity: 1,
       depthWrite: false,
       toneMapped: false,
     });
-    // sun slant for painted shadows (matches light direction)
-    this._sunOffX = -0.55;
-    this._sunOffZ = 0.4;
+    // Cast direction on the ground = opposite of the sun's horizontal position (sun at -10,+10 → shadows go +x,-z).
+    // Shadow length per unit of object height is _shadowK. Keep both in sync with this.sun.position.
+    const sx = -this.sun.position.x, sz = -this.sun.position.z, sl = Math.hypot(sx, sz);
+    this._sdir = [sx / sl, sz / sl];
+    this._shadowK = 0.5;
     this._resizeComposer();
   }
 
@@ -347,6 +368,7 @@ class View {
     let m = this._shadowPool[this._shadowUsed];
     if (!m) {
       m = new THREE.Mesh(this._quadGeo, this._shadowMat);
+      m.rotation.order = 'YXZ';
       m.rotation.x = -Math.PI / 2;
       m.renderOrder = 1;
       this._shadowPool.push(m);
@@ -355,30 +377,46 @@ class View {
     return m;
   }
 
-  /** Soft elliptical ground shadow (HD-2D style). */
-  addDropShadow(x, z, w, d, alpha) {
-    const mesh = this._takeShadow();
-    const ox = this._sunOffX * Math.max(w, d) * 0.35;
-    const oz = this._sunOffZ * Math.max(w, d) * 0.35;
-    mesh.position.set(x + ox, 0.008, z + oz);
-    mesh.scale.set(Math.max(0.25, w), Math.max(0.18, d), 1);
-    mesh.material = this._shadowMat;
-    if (alpha != null && alpha < 1) {
-      // per-instance opacity via cloned mat would be heavy — bake into scale/use shared
-      mesh.material.opacity = 1;
+  /**
+   * Shadow of an object whose ground footprint is [mnx..mxx]×[mnz..mxz] and which is `h` tall, cast along the sun direction.
+   * Small objects (people, animals, props) get one stretched, rotated shadow; large ones (buildings) get the footprint
+   * swept along the light so the shadow stays flush with their walls. Returns {x, z, sx, sz, rot}.
+   */
+  _shadowShape(mnx, mxx, mnz, mxz, h) {
+    h = Math.min(h, 2.6);
+    const [dx, dz] = this._sdir, len = h * this._shadowK;
+    const w = mxx - mnx, d = mxz - mnz, cx = (mnx + mxx) / 2, cz = (mnz + mxz) / 2;
+    if (Math.max(w, d) <= 1.3) {
+      const ex = Math.abs(dx) * w + Math.abs(dz) * d, ep = Math.abs(dz) * w + Math.abs(dx) * d;
+      const L = ex + len, W = Math.max(0.28, ep * 0.95);
+      return { x: cx + dx * len / 2, z: cz + dz * len / 2, sx: L * 1.2, sz: W * 1.25, rot: Math.atan2(-dz, dx) };
     }
+    const x0 = Math.min(mnx, mnx + dx * len), x1 = Math.max(mxx, mxx + dx * len);
+    const z0 = Math.min(mnz, mnz + dz * len), z1 = Math.max(mxz, mxz + dz * len);
+    return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, sx: x1 - x0 + 0.2, sz: z1 - z0 + 0.2, rot: 0 };
+  }
+
+  /** Per-frame shadow (people, animals, dynamic props). */
+  addCastShadow(mnx, mxx, mnz, mxz, h) {
+    if (h < 0.1) return;
+    const S = this._shadowShape(mnx, mxx, mnz, mxz, h);
+    const mesh = this._takeShadow();
+    mesh.position.set(S.x, 0.008, S.z);
+    mesh.rotation.y = S.rot;
+    mesh.scale.set(S.sx, S.sz, 1);
+    mesh.material = this._shadowMat;
     mesh.visible = true;
     this.dynamic.add(mesh);
   }
 
-  _bakeDropShadow(parent, x, z, w, d) {
+  _bakeCastShadow(parent, mnx, mxx, mnz, mxz, h) {
+    const S = this._shadowShape(mnx, mxx, mnz, mxz, h);
     const mesh = new THREE.Mesh(this._quadGeo, this._shadowMat);
-    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.order = 'YXZ';
+    mesh.rotation.x = -Math.PI / 2; mesh.rotation.y = S.rot;
     mesh.renderOrder = 1;
-    const ox = this._sunOffX * Math.max(w, d) * 0.35;
-    const oz = this._sunOffZ * Math.max(w, d) * 0.35;
-    mesh.position.set(x + ox, 0.007, z + oz);
-    mesh.scale.set(Math.max(0.3, w), Math.max(0.2, d), 1);
+    mesh.position.set(S.x, 0.007, S.z);
+    mesh.scale.set(S.sx, S.sz, 1);
     parent.add(mesh);
   }
 
@@ -488,6 +526,7 @@ class View {
     for (const p of pieces || []) {
       if (!p.B) continue;
       const psi = 0, cs = 1, sn = 0;
+      let mnx = 1e9, mxx = -1e9, mnz = 1e9, mxz = -1e9, top = 0;
       for (const b of p.B) {
         if (!b || b.w <= 0 || b.h <= 0 || b.d <= 0) continue;
         const lx = b.x, lz = b.z, ly = b.y + b.h / 2;
@@ -500,11 +539,14 @@ class View {
         mesh.castShadow = false;
         mesh.receiveShadow = false;
         this.staticRoot.add(mesh);
-        // painted HD-2D blob under taller props / buildings
-        if (b.h > 0.45 && b.w * b.d > 0.06 && (b.a == null || b.a > 0.75)) {
-          this._bakeDropShadow(this.staticRoot, wx, wz, b.w + b.h * 0.4, b.d + b.h * 0.28);
+        if (b.a == null || b.a > 0.75) {
+          mnx = Math.min(mnx, wx - b.w / 2); mxx = Math.max(mxx, wx + b.w / 2);
+          mnz = Math.min(mnz, wz - b.d / 2); mxz = Math.max(mxz, wz + b.d / 2);
+          top = Math.max(top, b.y + b.h);
         }
       }
+      // one cast shadow per object (not per box), so stacked parts never double-darken
+      if (top > 0.45 && mxx > mnx) this._bakeCastShadow(this.staticRoot, mnx, mxx, mnz, mxz, top);
     }
   }
 
@@ -522,29 +564,50 @@ class View {
     const sc = opts.scale || 1.0;
     const iw = (tex.image && tex.image.width) || 32;
     const ih = (tex.image && tex.image.height) || 40;
-    const bob = moving ? Math.abs(Math.sin(phase)) * 0.06 : 0;
-    const squash = moving ? 1 - Math.abs(Math.sin(phase)) * 0.04 : 1;
-    const stretch = moving ? 1 + Math.abs(Math.sin(phase)) * 0.025 : 1;
-    spr.scale.set(sc * (iw / 32) * squash, sc * (ih / 32) * stretch, 1);
+    let bob = moving ? Math.abs(Math.sin(phase)) * 0.06 : 0;
+    let squash = moving ? 1 - Math.abs(Math.sin(phase)) * 0.04 : 1;
+    let stretch = moving ? 1 + Math.abs(Math.sin(phase)) * 0.025 : 1;
+    let rot = 0, flip = 1;
+    const T = performance.now() / 1000;
+    // idle "pump": squash & stretch up/down like a video-game idle bounce
+    if (opts.pump && !moving && !opts.emote) {
+      const w = Math.sin(T * opts.pump.speed + (opts.pump.ph || 0));
+      stretch *= 1 + opts.pump.amp * w; squash *= 1 - opts.pump.amp * 0.6 * w; bob += Math.max(0, w) * opts.pump.amp * 0.5;
+    }
+    // emotes (et = seconds since the emote started)
+    const et = opts.et || 0;
+    switch (opts.emote) {
+      case 'sit': stretch *= 0.74; squash *= 1.06; bob += 0.15; break;
+      case 'dance': rot = Math.sin(et * 9) * 0.22; flip = Math.sin(et * 4.5) >= 0 ? 1 : -1; bob += Math.abs(Math.sin(et * 9)) * 0.16; stretch *= 1 + 0.06 * Math.cos(et * 18); break;
+      case 'wave': rot = Math.sin(et * 10) * 0.1; bob += Math.max(0, Math.sin(et * 5)) * 0.05; break;
+      case 'jump': bob += Math.abs(Math.sin(et * 7)) * 0.45; stretch *= 1 + 0.08 * Math.sin(et * 14); break;
+      case 'spin': squash *= Math.cos(et * 10); bob += Math.abs(Math.sin(et * 5)) * 0.1; break;
+      case 'laugh': rot = Math.sin(et * 22) * 0.07; bob += Math.abs(Math.sin(et * 11)) * 0.06; stretch *= 1 + 0.05 * Math.sin(et * 22); break;
+      case 'heart': bob += Math.abs(Math.sin(et * 4)) * 0.07; break;
+    }
+    spr.material.rotation = rot;
+    spr.scale.set(sc * (iw / 32) * squash * flip, sc * (ih / 32) * stretch, 1);
     spr.position.set(x, (y || 0) + 0.02 + bob, z);
     spr.visible = true;
     this.dynamic.add(spr);
     // soft oval under feet
     if (opts.shadow !== false) {
-      this.addDropShadow(x, z, sc * 0.52, sc * 0.32);
+      const hw = 0.17 * sc, hd = 0.1 * sc;
+      this.addCastShadow(x - hw, x + hw, z - hd, z + hd, sc * (ih / 32) * 0.8);
     }
   }
 
-  addCharacter(avatar, cat, x, z, scale, walk, moving) {
+  addCharacter(avatar, cat, x, z, scale, walk, moving, extra) {
     const frame = walkFrame(walk || 0, !!moving);
     const tex = makeCharSprite(avatar, cat, frame);
-    this.addBillboard(tex, x, 0, z, { scale: scale || 1.05, walk: walk || 0, moving: !!moving });
+    this.addBillboard(tex, x, 0, z, Object.assign({ scale: scale || 1.05, walk: walk || 0, moving: !!moving }, extra || {}));
   }
 
   flush() {
     for (const job of this._pending) {
       const cs = Math.cos(job.psi), sn = Math.sin(job.psi);
       const r = job.r || 1;
+      let mnx = 1e9, mxx = -1e9, mnz = 1e9, mxz = -1e9, top = 0;
       for (const b of job.boxes) {
         if (!b || b.w <= 0 || b.h <= 0 || b.d <= 0) continue;
         const lx = b.x * r, lz = b.z * r, ly = (b.y + b.h / 2) * r;
@@ -560,10 +623,13 @@ class View {
         mesh.castShadow = false;
         mesh.visible = true;
         this.dynamic.add(mesh);
-        if (bh > 0.5 && bw * bd > 0.05 && (b.a == null || b.a > 0.75)) {
-          this.addDropShadow(wx, wz, bw + bh * 0.35, bd + bh * 0.22);
+        if (b.a == null || b.a > 0.75) {
+          const ex = (Math.abs(cs) * bw + Math.abs(sn) * bd) / 2, ez = (Math.abs(sn) * bw + Math.abs(cs) * bd) / 2;
+          mnx = Math.min(mnx, wx - ex); mxx = Math.max(mxx, wx + ex); mnz = Math.min(mnz, wz - ez); mxz = Math.max(mxz, wz + ez);
+          top = Math.max(top, job.oy + (b.y + b.h) * r);
         }
       }
+      if (top > 0.45 && mxx > mnx) this.addCastShadow(mnx, mxx, mnz, mxz, top);   // one shadow per object
     }
     this._pending.length = 0;
     if (this.composer) this.composer.render();
