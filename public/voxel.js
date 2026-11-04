@@ -18,7 +18,13 @@ const Vox = (() => {
     if (!v) { const [r, g, b] = parse(hex); const cl = x => Math.max(0, Math.min(255, Math.round(x * f))); v = 'rgb(' + cl(r) + ',' + cl(g) + ',' + cl(b) + ')'; faceCache.set(key, v); }
     return v;
   }
-  const LIGHT = [-.5, .8, .33];
+  // FarmVille-ish cel bands: top / lit / side / shade
+  function celFace(hex, dl, isTop) {
+    const band = isTop ? 1.12 : dl > .45 ? 1.02 : dl > .05 ? .78 : .55;
+    return face(hex, band);
+  }
+  const LIGHT = [-.45, .85, .28];
+  const OUTLINE = '#2a1a0a';
 
   const mk = () => { const a = []; a.add = (x, y, z, w, h, d, c, al) => { a.push({ x, y, z, w, h, d, c, a: al }); return a; }; return a; };
 
@@ -32,7 +38,7 @@ const Vox = (() => {
     constructor(canvas) {
       this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
       this.ctx.imageSmoothingEnabled = false;
-      this.yaw = .78; this.pitch = .88; this.ppt = 28; this.fx = 0; this.fz = 0; this.hcf = .55;
+      this.yaw = .78; this.pitch = .92; this.ppt = 30; this.fx = 0; this.fz = 0; this.hcf = .55;
       this.groups = []; this.P = new Float64Array(16);
     }
     prep() {
@@ -64,7 +70,8 @@ const Vox = (() => {
       if (mxx < 0 || mnx > this.W || mxy < 0 || mny > this.H) return;
       ctx.beginPath(); ctx.moveTo(P[0], P[1]); ctx.lineTo(P[2], P[3]); ctx.lineTo(P[4], P[5]); ctx.lineTo(P[6], P[7]); ctx.closePath();
       ctx.fillStyle = fill; ctx.fill();
-      if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke(); }
+      const e = edge || 'rgba(42,26,10,.22)';
+      ctx.strokeStyle = e; ctx.lineWidth = Math.max(1, this.ppt * .035); ctx.stroke();
     }
     // queue a model (array of boxes) at a world position, rotated psi about the Y axis
     add(boxes, ox, oy, oz, psi, r) {
@@ -88,22 +95,31 @@ const Vox = (() => {
     drawBox(it) {
       const b = it.b, ctx = this.ctx, P = this.P, cs = it.cs, sn = it.sn;
       const hx = b.w / 2, hy = b.h / 2, hz = b.d / 2, cyy = b.y + hy;
+      let mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
       for (let i = 0; i < 8; i++) {
         const lx = b.x + ((i & 1) ? hx : -hx), lz = b.z + ((i & 4) ? hz : -hz), ly = cyy + ((i & 2) ? hy : -hy);
         const wx = it.ox + lx * cs + lz * sn, wz = it.oz - lx * sn + lz * cs, wy = it.oy + ly;
         const dx = wx - this.fx, dz = wz - this.fz, rx = dx * this.cyw - dz * this.syw, rz = dx * this.syw + dz * this.cyw;
-        P[i * 2] = Math.round(this.W / 2 + rx * this.ppt); P[i * 2 + 1] = Math.round(this.hc - (wy * this.cp + rz * this.sp) * this.ppt);
+        const sx = Math.round(this.W / 2 + rx * this.ppt), sy = Math.round(this.hc - (wy * this.cp + rz * this.sp) * this.ppt);
+        P[i * 2] = sx; P[i * 2 + 1] = sy;
+        if (sx < mnx) mnx = sx; if (sx > mxx) mxx = sx; if (sy < mny) mny = sy; if (sy > mxy) mxy = sy;
       }
+      // skip outlines for tiny / distant boxes (perf + less noise)
+      const span = Math.max(mxx - mnx, mxy - mny);
+      const doOutline = span >= 7 && (b.a === undefined || b.a > .55);
+      const ow = span > 28 ? Math.min(2.4, 1 + this.ppt * .04) : 1;
       if (b.a !== undefined) ctx.globalAlpha = b.a;
       for (let f = 0; f < 5; f++) {
         const fc = FACES[f], n = fc.n;
         const nx = n[0] * cs + n[2] * sn, nz = -n[0] * sn + n[2] * cs;
         if (n[1] * this.sp - (nx * this.syw + nz * this.cyw) * this.cp <= 0) continue;
         const dl = LIGHT[0] * nx + LIGHT[1] * n[1] + LIGHT[2] * nz;
-        const col = face(b.c, .62 + .48 * Math.max(0, dl));
+        const col = celFace(b.c, Math.max(0, dl), n[1] > .5);
         const c = fc.c;
         ctx.beginPath(); ctx.moveTo(P[c[0] * 2], P[c[0] * 2 + 1]); ctx.lineTo(P[c[1] * 2], P[c[1] * 2 + 1]); ctx.lineTo(P[c[2] * 2], P[c[2] * 2 + 1]); ctx.lineTo(P[c[3] * 2], P[c[3] * 2 + 1]); ctx.closePath();
-        ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = col; ctx.fill();
+        if (doOutline) { ctx.strokeStyle = OUTLINE; ctx.lineWidth = ow; ctx.lineJoin = 'round'; ctx.stroke(); }
+        else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
       }
       if (b.a !== undefined) ctx.globalAlpha = 1;
     }
@@ -149,35 +165,46 @@ const Vox = (() => {
     }
   }
 
-  // ---------------- characters (front = +z) ----------------
+  // ---------------- characters (front = +z) — chibi / FarmVille proportions ----------------
   function charBoxes(av, cat, walk, moving) {
     const f = av.gender === 'female', C = cat.CLOTH;
     const top = C[av.top] || C.top_tee_white, bot = C[av.bottom] || C.bot_jeans, sh = C[av.shoes] || C.shoe_plain;
     const hh = av.hat ? C[av.hat] : null, skin = av.skin, hc = av.hairColor, B = mk();
-    const sw = moving ? Math.sin(walk) * .1 : 0, tw = f ? .32 : .38;
+    const sw = moving ? Math.sin(walk) * .1 : 0, tw = f ? .36 : .4;
+    // chunky legs + shoes
     for (const s of [-1, 1]) {
-      const z = s * sw, x = s * .085;
-      B.add(x, .1, z, .14, .26, .14, bot.len === 'long' ? bot.c[0] : skin);
-      if (bot.len === 'long' && bot.pat !== 'solid') decals(B, bot.pat, x, .1, z, .14, .26, .14, bot.c[1]);
-      if (bot.len === 'short') { B.add(x, .2, z, .15, .16, .15, bot.c[0]); decals(B, bot.pat, x, .2, z, .15, .16, .15, bot.c[1]); }
-      B.add(x, 0, z + .02, .16, .1, .21, sh.c[0]);
-      if (sh.id !== 'shoe_plain') B.add(x, 0, z + .02, .17, .03, .22, sh.c[1]);
+      const z = s * sw, x = s * .1;
+      B.add(x, .12, z, .16, .22, .16, bot.len === 'long' ? bot.c[0] : skin);
+      if (bot.len === 'long' && bot.pat !== 'solid') decals(B, bot.pat, x, .12, z, .16, .22, .16, bot.c[1]);
+      if (bot.len === 'short') { B.add(x, .2, z, .17, .14, .17, bot.c[0]); decals(B, bot.pat, x, .2, z, .17, .14, .17, bot.c[1]); }
+      B.add(x, 0, z + .03, .2, .12, .26, sh.c[0]);
+      B.add(x, .02, z + .1, .16, .06, .12, lighten(sh.c[0], .15));
+      if (sh.id !== 'shoe_plain') B.add(x, 0, z + .03, .21, .04, .27, sh.c[1]);
     }
-    if (bot.len === 'skirt') { B.add(0, .2, 0, .42, .18, .28, bot.c[0]); decals(B, bot.pat, 0, .2, 0, .42, .18, .28, bot.c[1]); }
-    else { B.add(0, .3, 0, .35, .08, .21, bot.c[0]); decals(B, bot.pat, 0, .3, 0, .35, .08, .21, bot.c[1]); }
+    if (bot.len === 'skirt') { B.add(0, .2, 0, .48, .2, .32, bot.c[0]); decals(B, bot.pat, 0, .2, 0, .48, .2, .32, bot.c[1]); }
+    else { B.add(0, .3, 0, .4, .1, .24, bot.c[0]); decals(B, bot.pat, 0, .3, 0, .4, .1, .24, bot.c[1]); }
+    // arms
     for (const s of [-1, 1]) {
-      const x = s * (tw / 2 + .055), z = -s * sw;
-      if (top.long) { B.add(x, .4, z, .1, .3, .1, top.c[0]); B.add(x, .34, z, .09, .07, .09, skin); }
-      else { B.add(x, .56, z, .1, .14, .1, top.c[0]); B.add(x, .38, z, .09, .18, .09, skin); }
+      const x = s * (tw / 2 + .06), z = -s * sw;
+      if (top.long) { B.add(x, .42, z, .12, .28, .12, top.c[0]); B.add(x, .36, z, .1, .08, .1, skin); }
+      else { B.add(x, .56, z, .12, .14, .12, top.c[0]); B.add(x, .4, z, .1, .16, .1, skin); }
     }
-    B.add(0, .36, 0, tw, .34, .2, top.c[0]); decals(B, top.pat, 0, .36, 0, tw, .34, .2, top.c[1]);
-    B.add(0, .7, 0, .3, .3, .28, skin);
-    B.add(-.075, .82, .145, .045, .055, .02, '#222'); B.add(.075, .82, .145, .045, .055, .02, '#222'); B.add(0, .75, .145, .08, .02, .02, '#a0452f');
-    if (f) { B.add(-.11, .76, .145, .05, .03, .02, '#ff8fa3'); B.add(.11, .76, .145, .05, .03, .02, '#ff8fa3'); B.add(-.075, .87, .147, .065, .015, .02, '#222'); B.add(.075, .87, .147, .065, .015, .02, '#222'); }
-    B.add(0, .96, 0, .33, .08, .31, hc); B.add(0, .9, .145, .33, .07, .04, hc); B.add(0, .72, -.14, .33, .26, .05, hc);
-    B.add(-.16, .8, 0, .03, .16, .28, hc); B.add(.16, .8, 0, .03, .16, .28, hc);
-    if (f) { B.add(0, .38, -.165, .35, .58, .06, hc); B.add(-.17, .5, -.02, .05, .4, .2, hc); B.add(.17, .5, -.02, .05, .4, .2, hc); }
-    if (hh) hat(B, hh, 1.03);
+    // torso
+    B.add(0, .38, 0, tw, .32, .24, top.c[0]); decals(B, top.pat, 0, .38, 0, tw, .32, .24, top.c[1]);
+    // big chibi head + face
+    B.add(0, .68, 0, .4, .38, .36, skin);
+    B.add(-.1, .84, .185, .07, .08, .03, '#1a1a1a'); B.add(.1, .84, .185, .07, .08, .03, '#1a1a1a');
+    B.add(-.1, .86, .195, .03, .03, .02, '#fff'); B.add(.1, .86, .195, .03, .03, .02, '#fff');
+    B.add(0, .76, .19, .1, .03, .03, '#c45a3a');
+    if (f) {
+      B.add(-.14, .78, .185, .07, .04, .03, '#ff8fa3'); B.add(.14, .78, .185, .07, .04, .03, '#ff8fa3');
+      B.add(-.1, .91, .19, .08, .02, .02, '#1a1a1a'); B.add(.1, .91, .19, .08, .02, .02, '#1a1a1a');
+    }
+    // hair volume
+    B.add(0, .98, 0, .42, .12, .4, hc); B.add(0, .92, .18, .42, .1, .06, hc); B.add(0, .7, -.18, .4, .32, .08, hc);
+    B.add(-.2, .82, 0, .06, .2, .34, hc); B.add(.2, .82, 0, .06, .2, .34, hc);
+    if (f) { B.add(0, .4, -.2, .4, .55, .08, hc); B.add(-.2, .52, -.02, .07, .4, .22, hc); B.add(.2, .52, -.02, .07, .4, .22, hc); }
+    if (hh) hat(B, hh, 1.1);
     return B;
   }
 
@@ -187,28 +214,38 @@ const Vox = (() => {
       [[-.1, -.04], [.1, .03], [0, .1], [-.02, -.1], [.03, 0]].forEach(([x, z], i) => B.add(x, .04, z, .07, .18 + .2 * s + (i % 2) * .04, .07, i % 2 ? darken(d.c2, .12) : d.c2));
       if (r) { if (d.v === 0) { B.add(0, 0, 0, .26, .2, .26, d.c1); B.add(0, .2, 0, .14, .04, .14, lighten(d.c1, .3)); } else { B.add(0, 0, 0, .24, .1, .24, d.c1); B.add(0, .1, 0, .14, .04, .14, darken(d.c1, .2)); } }
     },
-    leafy(B, d, s, r) { for (let i = 0; i < 3; i++) { const w = (.3 + .45 * s) - i * .12; B.add(0, .02 + i * .09, 0, w, .09, w, i % 2 ? d.c2 : d.c1); } if (r) B.add(0, .3, 0, .14, .1, .14, lighten(d.c1, .35)); },
+    leafy(B, d, s, r) {
+      for (let i = 0; i < 4; i++) { const w = (.34 + .48 * s) - i * .1; B.add(0, .02 + i * .08, 0, w, .1, w, i % 2 ? lighten(d.c2, .1) : d.c1); }
+      if (r) { B.add(0, .34, 0, .16, .12, .16, lighten(d.c1, .3)); B.add(-.12, .28, .1, .1, .08, .1, lighten(d.c1, .2)); }
+    },
     bushfruit(B, d, s, r) {
-      const g = .22 + .14 * s;
-      [[-.18, 0, -.02], [.18, 0, .02], [0, 0, -.18], [0, 0, .18], [0, .14 * s + .08, 0]].forEach(([x, y, z], i) => B.add(x * s, y, z * s, g, g * .8, g, i % 2 ? d.c2 : darken(d.c2, .1)));
-      if (r) [[-.28, .1, .05], [.27, .12, -.05], [0, .12, .28], [.05, .1, -.28], [-.1, .32, .05], [.12, .3, -.04], [-.22, .2, -.22], [.22, .2, .22]].forEach(([x, y, z]) => { const sz = d.v === 0 ? .12 : d.v === 1 ? .09 : .075; B.add(x, y, z, sz, sz, sz, d.c1); });
+      const g = .24 + .16 * s, sc = Math.max(.7, s);
+      [[-.2, 0, -.04], [.2, 0, .04], [0, 0, -.2], [0, 0, .2], [-.12, .1 * s, .12], [.12, .1 * s, -.12], [0, .16 * s + .1, 0]].forEach(([x, y, z], i) =>
+        B.add(x * sc, y, z * sc, g, g * .85, g, i % 2 ? lighten(d.c2, .12) : d.c2));
+      if (r) {
+        [[-.3, .12, .06], [.28, .14, -.06], [0, .14, .3], [.06, .12, -.3], [-.12, .34, .06], [.14, .32, -.05], [-.24, .22, -.22], [.24, .22, .22], [0, .28, 0]].forEach(([x, y, z], i) => {
+          const sz = d.v === 0 ? .13 : d.v === 1 ? .1 : .08;
+          B.add(x, y, z, sz, sz * 1.05, sz, d.c1);
+          if (i % 2 === 0) B.add(x, y + sz * .45, z, sz * .35, .03, sz * .35, '#3f9a3a');
+        });
+      }
     },
     stalk(B, d, s, r) {
-      const h = .2 + .8 * s; B.add(0, 0, 0, .09, h, .09, d.c2);
-      for (let i = 0; i < 3; i++) B.add(i % 2 ? .14 : -.14, .15 + i * h * .28, 0, .22, .05, .08, i % 2 ? darken(d.c2, .1) : lighten(d.c2, .1));
-      if (r) { B.add(.1, .36, .05, .12, .26, .12, d.c1); B.add(.1, .34, .05, .14, .05, .14, d.c2); B.add(-.1, .5, -.05, .12, .24, .12, d.c1); B.add(-.1, .48, -.05, .14, .05, .14, d.c2); B.add(0, h, 0, .04, .1, .04, '#d9b44a'); B.add(.05, h, 0, .04, .08, .04, '#d9b44a'); }
+      const h = .22 + .85 * s; B.add(0, 0, 0, .11, h, .11, d.c2);
+      for (let i = 0; i < 4; i++) B.add(i % 2 ? .16 : -.16, .12 + i * h * .22, 0, .26, .06, .1, i % 2 ? darken(d.c2, .1) : lighten(d.c2, .15));
+      if (r) { B.add(.12, .38, .05, .14, .28, .14, d.c1); B.add(.12, .36, .05, .16, .06, .16, d.c2); B.add(-.12, .52, -.05, .14, .26, .14, d.c1); B.add(-.12, .5, -.05, .16, .06, .16, d.c2); B.add(0, h, 0, .06, .12, .06, '#f0c94a'); B.add(.06, h, 0, .05, .1, .05, '#f0c94a'); }
     },
     flower(B, d, s, r) {
-      const h = .25 + .75 * s; B.add(0, 0, 0, .06, h, .06, '#3f9a3a'); B.add(.1, .2 * h + .05, 0, .16, .04, .07, '#4fae44'); B.add(-.1, .5 * h, 0, .16, .04, .07, '#4fae44');
-      if (!r) { B.add(0, h, 0, .14, .12, .14, '#4fa83a'); return; }
-      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; B.add(Math.cos(a) * .17, h - .01, Math.sin(a) * .17, .11, .06, .11, d.c1); }
-      if (d.v === 0) B.add(0, h, 0, .18, .07, .18, d.c2); else { B.add(0, h, 0, .14, .08, .14, '#ffe98a'); B.add(0, h + .02, 0, .5, .02, .5, '#aab8ff', .25); }
+      const h = .25 + .75 * s; B.add(0, 0, 0, .07, h, .07, '#3f9a3a'); B.add(.12, .2 * h + .05, 0, .18, .05, .08, '#4fae44'); B.add(-.12, .5 * h, 0, .18, .05, .08, '#4fae44');
+      if (!r) { B.add(0, h, 0, .16, .14, .16, '#4fa83a'); return; }
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; B.add(Math.cos(a) * .19, h - .01, Math.sin(a) * .19, .13, .07, .13, d.c1); }
+      if (d.v === 0) B.add(0, h, 0, .2, .08, .2, d.c2); else { B.add(0, h, 0, .16, .09, .16, '#ffe98a'); B.add(0, h + .02, 0, .52, .02, .52, '#aab8ff', .25); }
     },
     gourd(B, d, s, r) {
-      [[-.28, .02, .1], [.28, .02, -.1], [0, .02, .3]].forEach(([x, y, z], i) => B.add(x, y, z, .24, .04, .16, i % 2 ? '#3f9a3a' : '#4fae44'));
-      if (!r) { B.add(0, 0, 0, .16 * s + .1, .14 * s + .06, .16 * s + .1, d.c1); return; }
-      if (d.v === 0) { B.add(0, 0, 0, .5, .34, .5, d.c1); [-.17, 0, .17].forEach(x => B.add(x, 0, 0, .04, .34, .52, darken(d.c1, .2))); B.add(0, .34, 0, .07, .12, .07, '#5a7d2a'); }
-      else { B.add(0, 0, 0, .6, .3, .42, d.c1); [-.22, -.08, .08, .22].forEach(x => B.add(x, 0, 0, .05, .31, .43, darken(d.c1, .35))); B.add(-.15, .3, -.05, .14, .02, .08, d.c2); }
+      [[-.3, .02, .1], [.3, .02, -.1], [0, .02, .32], [-.1, .02, -.28]].forEach(([x, y, z], i) => B.add(x, y, z, .26, .05, .18, i % 2 ? '#3f9a3a' : '#58c24a'));
+      if (!r) { B.add(0, 0, 0, .18 * s + .12, .16 * s + .08, .18 * s + .12, d.c1); return; }
+      if (d.v === 0) { B.add(0, 0, 0, .54, .36, .54, d.c1); [-.18, 0, .18].forEach(x => B.add(x, 0, 0, .05, .36, .56, darken(d.c1, .2))); B.add(0, .36, 0, .08, .14, .08, '#5a7d2a'); }
+      else { B.add(0, 0, 0, .64, .32, .44, d.c1); [-.24, -.08, .08, .24].forEach(x => B.add(x, 0, 0, .05, .33, .45, darken(d.c1, .35))); B.add(-.16, .32, -.05, .16, .03, .1, d.c2); }
     },
     hang(B, d, s, r) {
       const th = .3 + .4 * s; B.add(0, 0, 0, .12, th, .12, '#7a5230'); const c = .2 * s + .12;
@@ -315,70 +352,93 @@ const Vox = (() => {
 
   function stallBoxes(kind) {
     const B = mk();
-    B.add(0, 0, 0, .9, .08, .6, '#8a5a2b');
-    B.add(0, .08, 0, .85, .55, .55, '#f4e0b0');
-    B.add(0, .7, 0, 1.05, .08, .7, '#c92a2a');
-    B.add(-.4, .08, .28, .08, .55, .08, '#7a5230'); B.add(.4, .08, .28, .08, .55, .08, '#7a5230');
-    if (kind === 'lemonade') { B.add(0, .25, .28, .2, .25, .12, '#ffe066'); B.add(0, .5, .28, .12, .08, .12, '#fff'); }
-    else if (kind === 'flowers') { [[-.2, .35], [0, .4], [.2, .35]].forEach(([x, y]) => { B.add(x, y, .3, .1, .1, .1, '#ff6b6b'); B.add(x, y - .08, .3, .04, .1, .04, '#2f9e44'); }); }
-    else if (kind === 'craft') { B.add(0, .2, .28, .35, .18, .18, '#adb5bd'); B.add(0, .4, .28, .2, .15, .15, '#868e96'); }
-    else if (kind === 'bakery') { B.add(0, .28, .3, .28, .12, .16, '#e8b86d'); B.add(0, .4, .3, .18, .08, .12, '#f4d6a0'); }
-    else { B.add(0, .25, .28, .3, .22, .14, '#4263eb'); B.add(0, .48, .28, .18, .12, .1, '#ffd43b'); }
+    B.add(0, 0, 0, .95, .1, .65, '#8a5a2b');
+    B.add(0, .1, 0, .88, .55, .58, '#fff4d6');
+    B.add(0, .72, 0, 1.12, .1, .78, '#e03131');
+    B.add(0, .82, 0, .95, .05, .65, '#fff');
+    B.add(-.42, .1, .3, .1, .55, .1, '#7a5230'); B.add(.42, .1, .3, .1, .55, .1, '#7a5230');
+    if (kind === 'lemonade') { B.add(0, .28, .3, .22, .28, .14, '#ffe066'); B.add(0, .55, .3, .14, .1, .14, '#fff'); B.add(0, .22, .36, .08, .08, .04, '#ff922b'); }
+    else if (kind === 'flowers') { [[-.22, .38], [0, .44], [.22, .38]].forEach(([x, y], i) => { B.add(x, y, .32, .12, .12, .12, i === 1 ? '#ff6b6b' : '#ffa8c5'); B.add(x, y - .1, .32, .05, .12, .05, '#2f9e44'); }); }
+    else if (kind === 'craft') { B.add(0, .22, .3, .38, .2, .2, '#ced4da'); B.add(0, .44, .3, .22, .16, .16, '#868e96'); }
+    else if (kind === 'bakery') { B.add(0, .28, .32, .3, .14, .18, '#e8b86d'); B.add(0, .42, .32, .2, .1, .14, '#f4d6a0'); B.add(0, .52, .32, .12, .08, .1, '#fff'); }
+    else { B.add(0, .26, .3, .32, .24, .16, '#4263eb'); B.add(0, .5, .3, .2, .14, .12, '#ffd43b'); }
     return B;
   }
   function penFence(w, h) {
     const B = mk();
-    for (let i = 0; i <= w; i++) { B.add(i - w / 2, 0, -h / 2, .08, .35, .08, '#a0703c'); B.add(i - w / 2, 0, h / 2, .08, .35, .08, '#a0703c'); }
-    for (let j = 0; j <= h; j++) { B.add(-w / 2, 0, j - h / 2, .08, .35, .08, '#a0703c'); B.add(w / 2, 0, j - h / 2, .08, .35, .08, '#a0703c'); }
-    B.add(0, .18, -h / 2, w, .04, .04, '#8a5a2b'); B.add(0, .18, h / 2, w, .04, .04, '#8a5a2b');
+    const post = '#f1f3f5', rail = '#dee2e6';
+    for (let i = 0; i <= w; i++) { B.add(i - w / 2, 0, -h / 2, .09, .4, .09, post); B.add(i - w / 2, 0, h / 2, .09, .4, .09, post); }
+    for (let j = 0; j <= h; j++) { B.add(-w / 2, 0, j - h / 2, .09, .4, .09, post); B.add(w / 2, 0, j - h / 2, .09, .4, .09, post); }
+    B.add(0, .14, -h / 2, w, .05, .05, rail); B.add(0, .28, -h / 2, w, .05, .05, rail);
+    B.add(0, .14, h / 2, w, .05, .05, rail); B.add(0, .28, h / 2, w, .05, .05, rail);
+    B.add(-w / 2, .14, 0, .05, .05, h, rail); B.add(w / 2, .14, 0, .05, .05, h, rail);
+    B.add(-w / 2, .28, 0, .05, .05, h, rail); B.add(w / 2, .28, 0, .05, .05, h, rail);
     return B;
   }
   function animalBoxes(kind) {
     const B = mk();
     if (kind === 'chicken') {
-      B.add(0, .12, 0, .22, .18, .2, '#fff'); B.add(.12, .2, 0, .1, .08, .1, '#ff922b'); B.add(0, .3, 0, .16, .1, .16, '#fff');
-      B.add(0, .38, 0, .08, .06, .08, '#e03131'); B.add(-.06, 0, .05, .05, .12, .05, '#ffd43b'); B.add(.06, 0, .05, .05, .12, .05, '#ffd43b');
+      B.add(0, .14, 0, .26, .22, .24, '#fff'); B.add(0, .34, 0, .2, .14, .2, '#fff');
+      B.add(.14, .24, 0, .12, .1, .1, '#ff922b'); B.add(0, .46, 0, .1, .08, .1, '#e03131');
+      B.add(-.07, .38, .12, .05, .05, .03, '#1a1a1a'); B.add(.05, .38, .12, .05, .05, .03, '#1a1a1a');
+      B.add(-.07, 0, .06, .06, .14, .06, '#ffd43b'); B.add(.07, 0, .06, .06, .14, .06, '#ffd43b');
     } else if (kind === 'cow') {
-      B.add(0, .2, 0, .45, .3, .25, '#f8f9fa'); B.add(-.1, .25, 0, .12, .12, .26, '#212529'); B.add(.15, .28, -.05, .1, .1, .1, '#212529');
-      B.add(-.2, .35, .05, .14, .14, .14, '#f8f9fa'); B.add(-.28, .4, .05, .05, .05, .05, '#ff922b');
-      [[-.15, 0], [.15, 0], [-.15, .15], [.15, .15]].forEach(([x, z]) => B.add(x, 0, z, .07, .2, .07, '#212529'));
+      B.add(0, .22, 0, .5, .34, .3, '#f8f9fa');
+      B.add(-.12, .28, 0, .14, .14, .32, '#212529'); B.add(.16, .3, -.06, .12, .12, .12, '#212529');
+      B.add(-.22, .4, .06, .18, .18, .18, '#f8f9fa'); B.add(-.32, .46, .06, .06, .06, .06, '#ff922b');
+      B.add(-.26, .48, .12, .05, .05, .03, '#1a1a1a'); B.add(-.18, .48, .12, .05, .05, .03, '#1a1a1a');
+      [[-.16, 0], [.16, 0], [-.16, .16], [.16, .16]].forEach(([x, z]) => B.add(x, 0, z, .08, .22, .08, '#212529'));
     } else {
-      B.add(0, .18, 0, .35, .28, .22, '#f1f3f5'); B.add(-.18, .3, 0, .12, .12, .12, '#f1f3f5');
-      B.add(0, .42, -.02, .08, .1, .08, '#adb5bd');
-      [[-.12, 0], [.12, 0], [-.12, .12], [.12, .12]].forEach(([x, z]) => B.add(x, 0, z, .06, .16, .06, '#868e96'));
+      // fluffy sheep
+      B.add(0, .2, 0, .4, .32, .28, '#fff'); B.add(0, .22, 0, .28, .22, .2, '#f1f3f5');
+      B.add(-.2, .34, 0, .16, .16, .16, '#212529'); B.add(-.26, .4, .04, .05, .05, .05, '#ff922b');
+      B.add(-.24, .42, .1, .04, .04, .03, '#fff'); B.add(-.16, .42, .1, .04, .04, .03, '#fff');
+      B.add(0, .48, -.02, .1, .12, .1, '#adb5bd');
+      [[-.14, 0], [.14, 0], [-.14, .14], [.14, .14]].forEach(([x, z]) => B.add(x, 0, z, .07, .18, .07, '#495057'));
     }
     return B;
   }
   function petBoxes(kind) {
     const B = mk();
     if (kind === 'pet_dog') {
-      B.add(0, .12, 0, .28, .2, .18, '#c9a066'); B.add(-.16, .22, 0, .14, .14, .14, '#c9a066');
-      B.add(-.2, .28, .06, .05, .05, .05, '#212529'); B.add(-.22, .18, -.02, .08, .06, .04, '#8a5a2b');
-      [[-.08, .08], [.1, .08], [-.08, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .06, .12, .06, '#8a5a2b'));
-      B.add(.16, .2, 0, .05, .05, .16, '#c9a066');
+      B.add(0, .14, 0, .32, .22, .22, '#d4a574'); B.add(-.18, .24, 0, .16, .16, .16, '#d4a574');
+      B.add(-.22, .32, .08, .05, .05, .04, '#1a1a1a'); B.add(-.14, .32, .08, .05, .05, .04, '#1a1a1a');
+      B.add(-.24, .2, -.02, .1, .08, .05, '#8a5a2b'); B.add(.18, .22, 0, .06, .06, .18, '#d4a574');
+      [[-.1, .08], [.1, .08], [-.1, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .07, .14, .07, '#8a5a2b'));
     } else if (kind === 'pet_cat') {
-      B.add(0, .1, 0, .24, .16, .16, '#868e96'); B.add(-.12, .2, 0, .12, .12, .12, '#868e96');
-      B.add(-.16, .3, -.04, .05, .08, .04, '#868e96'); B.add(-.16, .3, .04, .05, .08, .04, '#868e96');
-      B.add(.14, .16, 0, .05, .05, .14, '#adb5bd');
-      [[-.06, .05], [.08, .05], [-.06, -.05], [.08, -.05]].forEach(([x, z]) => B.add(x, 0, z, .05, .1, .05, '#495057'));
+      B.add(0, .12, 0, .28, .18, .18, '#868e96'); B.add(-.14, .22, 0, .14, .14, .14, '#868e96');
+      B.add(-.18, .34, -.05, .06, .1, .05, '#868e96'); B.add(-.18, .34, .05, .06, .1, .05, '#868e96');
+      B.add(-.18, .28, .08, .04, .04, .03, '#1a1a1a'); B.add(-.1, .28, .08, .04, .04, .03, '#1a1a1a');
+      B.add(.16, .18, 0, .06, .06, .16, '#adb5bd');
+      [[-.08, .06], [.1, .06], [-.08, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .06, .12, .06, '#495057'));
     } else {
-      B.add(0, .1, 0, .2, .16, .16, '#fff'); B.add(-.1, .18, 0, .12, .12, .12, '#fff');
-      B.add(-.14, .22, 0, .06, .06, .04, '#ffc9c9'); B.add(.12, .14, 0, .05, .05, .1, '#fff');
-      [[-.05, .05], [.06, .05], [-.05, -.05], [.06, -.05]].forEach(([x, z]) => B.add(x, 0, z, .04, .1, .04, '#ffc9c9'));
+      B.add(0, .12, 0, .24, .18, .18, '#fff'); B.add(-.12, .2, 0, .14, .14, .14, '#fff');
+      B.add(-.16, .26, 0, .08, .08, .05, '#ffc9c9'); B.add(-.16, .26, .08, .04, .04, .03, '#1a1a1a'); B.add(-.08, .26, .08, .04, .04, .03, '#1a1a1a');
+      B.add(.14, .16, 0, .06, .06, .12, '#fff');
+      [[-.06, .06], [.08, .06], [-.06, -.06], [.08, -.06]].forEach(([x, z]) => B.add(x, 0, z, .05, .12, .05, '#ffc9c9'));
     }
     return B;
   }
   function bushBoxes() {
     const B = mk();
-    B.add(0, 0, 0, .5, .35, .5, '#2f9e44'); B.add(0, .2, 0, .4, .3, .4, '#37b24d'); B.add(.1, .35, .05, .2, .18, .2, '#40c057');
-    B.add(-.12, .28, -.1, .16, .14, .16, '#2b8a3e');
+    B.add(0, 0, 0, .55, .38, .55, '#2f9e44'); B.add(0, .22, 0, .44, .32, .44, '#40c057');
+    B.add(.12, .38, .06, .22, .2, .22, '#51cf66'); B.add(-.14, .3, -.12, .18, .16, .18, '#2b8a3e');
+    B.add(.18, .28, -.14, .14, .12, .14, '#37b24d');
     return B;
   }
   function shopBox(w, h, d, roof) {
     const B = mk();
-    B.add(0, 0, 0, w, h, d, '#f8e8c8');
-    B.add(0, h, 0, w + .2, .12, d + .2, roof || '#e03131');
-    B.add(0, .35, d / 2, .35, .55, .04, '#8a5a2b');
+    const roofC = roof || '#e03131';
+    B.add(0, 0, 0, w, h, d, '#fff4d6');
+    B.add(0, h, 0, w + .35, .14, d + .35, roofC);
+    B.add(0, h + .14, 0, w + .1, .08, d + .1, '#fff');
+    B.add(0, .05, d / 2 + .02, .42, .7, .08, '#8a5a2b');
+    B.add(.14, .4, d / 2 + .06, .08, .1, .04, '#ffd43b');
+    [[-w * .28, .55], [w * .28, .55]].forEach(([x, y]) => {
+      B.add(x, y, d / 2, .5, .42, .06, '#8a5a2b');
+      B.add(x, y + .04, d / 2 + .04, .4, .32, .04, '#9ec9e8');
+    });
+    B.add(0, h * .55, -d / 2, w * .55, .35, .08, '#c92a2a');
     return B;
   }
   function slideBoxes() {
@@ -409,36 +469,43 @@ const Vox = (() => {
     const B = mk();
     const trim = '#8a5a2b';
     B.add(0, 0, -.2, 5.8, .14, 4.6, '#9a7048');
-    B.add(0, .14, -.2, 5.5, .05, 4.3, '#e8d4a8');
+    B.add(0, .14, -.2, 5.5, .05, 4.3, '#f0dcb0');
     // porch + path (always opaque)
-    B.add(0, .05, 2.55, 2.5, .1, 1.0, '#c9a066');
-    B.add(-1.05, .1, 2.95, .12, .75, .12, trim);
-    B.add(1.05, .1, 2.95, .12, .75, .12, trim);
-    B.add(0, .82, 2.95, 2.3, .08, .75, '#a0703c');
-    [[0, 3.45], [-.35, 3.75], [.3, 3.95]].forEach(([x, z]) => B.add(x, 0, z, .35, .05, .28, '#adb5bd'));
+    B.add(0, .05, 2.55, 2.6, .12, 1.05, '#d4a574');
+    B.add(-1.1, .1, 2.95, .14, .8, .14, '#fff');
+    B.add(1.1, .1, 2.95, .14, .8, .14, '#fff');
+    B.add(0, .88, 2.95, 2.4, .1, .8, '#a0703c');
+    [[0, 3.45], [-.35, 3.75], [.3, 3.95]].forEach(([x, z]) => B.add(x, 0, z, .38, .06, .3, '#ced4da'));
     return B;
   }
   function modelHomeShell(alpha) {
     const B = mk();
     const a = alpha == null ? 1 : alpha;
-    const wall = '#f6e7c8', trim = '#8a5a2b', roof = '#c92a2a', glass = '#9ec9e8';
-    // walls
-    B.add(0, .2, -2.25, 5.5, 1.6, .22, wall, a);           // back
-    B.add(-2.65, .2, -.2, .22, 1.6, 4.3, wall, a);          // left
-    B.add(2.65, .2, -.2, .22, 1.6, 4.3, wall, a);           // right
-    B.add(-1.75, .2, 1.95, 2.0, 1.6, .22, wall, a);         // front L
-    B.add(1.75, .2, 1.95, 2.0, 1.6, .22, wall, a);          // front R
-    B.add(0, 1.25, 1.95, 1.55, .55, .22, wall, a);          // door lintel
-    // door + windows
-    B.add(0, .2, 2.0, .72, 1.08, .1, '#6b4423', a);
-    B.add(.24, .7, 2.08, .07, .1, .04, '#f2b632', a);
+    const wall = '#fff8e7', trim = '#fff', roof = '#c92a2a', glass = '#9ec9e8', wood = '#8a5a2b';
+    // walls — cream barn cottage
+    B.add(0, .2, -2.25, 5.5, 1.65, .24, wall, a);
+    B.add(-2.65, .2, -.2, .24, 1.65, 4.3, wall, a);
+    B.add(2.65, .2, -.2, .24, 1.65, 4.3, wall, a);
+    B.add(-1.75, .2, 1.95, 2.0, 1.65, .24, wall, a);
+    B.add(1.75, .2, 1.95, 2.0, 1.65, .24, wall, a);
+    B.add(0, 1.3, 1.95, 1.55, .55, .24, wall, a);
+    // door + windows with white trim
+    B.add(0, .2, 2.0, .78, 1.12, .12, '#6b4423', a);
+    B.add(.26, .72, 2.1, .08, .12, .05, '#f2b632', a);
     [[-1.55, -2.15], [1.55, -2.15], [-2.6, .15], [2.6, .15]].forEach(([x, z]) => {
-      B.add(x, .6, z, .72, .58, .1, trim, a);
-      B.add(x, .63, z + (z < 0 ? .06 : -.06), .58, .45, .04, glass, Math.min(1, a + .15));
+      B.add(x, .55, z, .8, .65, .12, wood, a);
+      B.add(x, .58, z, .88, .72, .08, trim, a);
+      B.add(x, .62, z + (z < 0 ? .07 : -.07), .62, .5, .05, glass, Math.min(1, a + .15));
     });
-    // top trim / wall cap (no big roof slab — it looked bad from above)
-    B.add(0, 1.78, -.2, 5.7, .1, 4.5, trim, a);
-    B.add(0, 1.88, -.2, 5.3, .06, 4.1, roof, a);
+    // gambrel-ish roof bands + white ridge
+    B.add(0, 1.82, -.2, 5.9, .12, 4.6, wood, a);
+    B.add(0, 1.92, -.2, 5.5, .14, 4.2, roof, a);
+    B.add(0, 2.06, -.2, 4.2, .12, 3.2, roof, a);
+    B.add(0, 2.18, -.2, 2.8, .1, 2.2, roof, a);
+    B.add(0, 2.28, -.2, 1.4, .08, 1.2, trim, a);
+    // tiny cupola cue
+    B.add(0, 2.34, -.2, .35, .28, .35, wall, a);
+    B.add(0, 2.62, -.2, .5, .08, .5, roof, a);
     return B;
   }
   function modelHomeCottage(alpha) {

@@ -338,7 +338,7 @@
   // ---------- 3D view ----------
   const cv = $('#game'), lab = $('#labels'), lctx = lab.getContext('2d');
   const view = new Vox.View(cv);
-  let PIX = 2, zoom = 30, yawT = view.yaw, mouse = { x: 0, y: 0 };
+  let PIX = 2, zoom = 32, yawT = view.yaw, mouse = { x: 0, y: 0 };
   const scaleX = () => innerWidth / cv.width, scaleY = () => innerHeight / cv.height;
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
   const toPage = (X, Y, Z) => { const s = view.toScreen(X, Y, Z); return [s[0] * scaleX(), s[1] * scaleY(), s[2]]; };
@@ -1017,9 +1017,9 @@
     view.yaw += (yawT - view.yaw) * Math.min(1, dt * 10);
     view.ppt += (zoom - view.ppt) * Math.min(1, dt * 10);
     view.fx += (self.x / TILE - view.fx) * Math.min(1, dt * 9); view.fz += (self.y / TILE - view.fz) * Math.min(1, dt * 9);
-    view.hcf = .55; view.prep(); view.clear('#68b657');
+    view.hcf = .55; view.prep(); view.clear('#6fd65a');
 
-    // ground
+    // ground — bright FarmVille-style lime grass + warm plot floors
     const cs = [view.pick(0, 0, 0), view.pick(bw, 0, 0), view.pick(0, bh, 0), view.pick(bw, bh, 0)];
     const x0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.x))) - 1), x1 = Math.min(WD.width - 1, Math.ceil(Math.max(...cs.map(c => c.x))) + 1);
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
@@ -1027,12 +1027,12 @@
       const chk = (tx + tz) & 1; let col;
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
-      if (inPark(tx, tz)) col = chk ? '#8fdc7a' : '#7bc96a';
-      else if (houseFloor) col = chk ? '#e6d3a8' : '#d9c28f'; // warm wood / house flooring
-      else if (li >= 0) col = chk ? '#a5d96f' : '#9bd166';
-      else if (isMargin(tx, tz)) col = chk ? '#6fbd5e' : '#68b657';
-      else col = chk ? '#d9d4c3' : '#cfcab8';
-      view.quad(tx, tz, tx + 1, tz + 1, 0, col, col);
+      if (inPark(tx, tz)) col = chk ? '#9be86a' : '#86d854';
+      else if (houseFloor) col = chk ? '#efd7a0' : '#e0c48a'; // warm wood / house flooring
+      else if (li >= 0) col = chk ? '#b6ef5c' : '#a6e34e';
+      else if (isMargin(tx, tz)) col = chk ? '#7ed85a' : '#6eca4c';
+      else col = chk ? '#e4dfc8' : '#d8d3bc';
+      view.quad(tx, tz, tx + 1, tz + 1, 0, col);
     }
     // land floors: soil under plants, house planks, faint grid on my land
     const fpsi = fpsiFor(view.yaw);
@@ -1052,8 +1052,8 @@
       for (const k in L.tiles) {
         const tile = L.tiles[k]; if (tile.type !== 'plant') continue;
         const [lx, ly] = k.split(',').map(Number);
-        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0, '#7a5a3a', '#7a5a3a');
-        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0, '#6a4c30');
+        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0, '#9a6b3c');
+        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0, '#7e5530');
       }
     });
     const [mbx, mby] = toBuf(mouse.x, mouse.y); const hp = pickAt(mbx, mby);
