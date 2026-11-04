@@ -354,7 +354,7 @@
   if (!window.HD2D || !HD2D.View) throw new Error('HD2D renderer missing — check hd2d-boot.js');
   const cv = $('#game'), lab = $('#labels'), lctx = lab.getContext('2d');
   const view = new HD2D.View(cv);
-  let zoom = 47, yawT = view.yaw, mouse = { x: 0, y: 0 };
+  let zoom = 36, yawT = view.yaw, mouse = { x: 0, y: 0 };
   const scaleX = () => innerWidth / Math.max(1, view.W);
   const scaleY = () => innerHeight / Math.max(1, view.H);
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
@@ -1037,7 +1037,7 @@
   cv.addEventListener('mousedown', e => { if (e.button === 2 || e.button === 1) { drag = e.clientX; e.preventDefault(); } });
   addEventListener('mouseup', () => { drag = null; });
   addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; if (drag !== null) { const d = (e.clientX - drag) * .012; drag = e.clientX; yawT += d; view.yaw += d; } });
-  cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(23, Math.min(62, zoom * (e.deltaY < 0 ? 1.1 : .91))); }, { passive: false });
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(18, Math.min(48, zoom * (e.deltaY < 0 ? 1.1 : .91))); }, { passive: false });
   cv.addEventListener('click', e => {
     if (suppressClick) { suppressClick = false; return; }
     clickScreen(e.clientX, e.clientY);
