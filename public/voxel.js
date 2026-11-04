@@ -41,8 +41,8 @@ const Vox = (() => {
     { c: [7, 6, 4, 5], n: [0, 0, 1] }, { c: [2, 3, 1, 0], n: [0, 0, -1] },
   ];
   class View {
-    constructor(canvas) {
-      this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
+    constructor(canvas, opts) {
+      this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: !!(opts && opts.alpha) });   // icons need a transparent canvas, otherwise they get a black box
       this.ctx.imageSmoothingEnabled = false;
       this.yaw = .78; this.pitch = .98; this.ppt = 32; this.fx = 0; this.fz = 0; this.hcf = .52;
       this.groups = []; this.P = new Float64Array(16);
@@ -193,7 +193,7 @@ const Vox = (() => {
 
   function renderIcon(boxes, o) {
     const c = document.createElement('canvas'); c.width = o.w; c.height = o.h;
-    const v = new View(c); v.yaw = o.yaw === undefined ? .78 : o.yaw; v.ppt = o.ppt; v.hcf = o.hcf || .8; v.prep();
+    const v = new View(c, { alpha: true }); v.yaw = o.yaw === undefined ? .78 : o.yaw; v.ppt = o.ppt; v.hcf = o.hcf || .8; v.prep();
     v.add(boxes, 0, 0, 0, o.psi || 0, 4); v.flush();
     return c;
   }
@@ -360,7 +360,14 @@ const Vox = (() => {
   const F = {
     stool(B, m, a, d) { [[-.2, -.2], [.2, -.2], [-.2, .2], [.2, .2]].forEach(([x, z]) => B.add(x, 0, z, .07, .32, .07, d)); B.add(0, .32, 0, .52, .1, .52, m); B.add(0, .42, 0, .38, .04, .38, a); },
     chair(B, m, a, d) { [[-.18, -.18], [.18, -.18], [-.18, .18], [.18, .18]].forEach(([x, z]) => B.add(x, 0, z, .06, .3, .06, d)); B.add(0, .3, 0, .46, .08, .46, a); B.add(0, .38, -.2, .46, .42, .07, m); B.add(0, .48, -.165, .32, .22, .02, a); },
-    lamp(B, m, a, d) { B.add(0, 0, 0, .28, .05, .28, d); B.add(0, .05, 0, .05, .6, .05, m); B.add(0, .62, 0, .36, .24, .36, a); B.add(0, .86, 0, .24, .04, .24, lighten(a, .4)); B.add(0, .6, 0, .46, .28, .46, '#ffe9a0', .22); },
+    lamp(B, m, a, d) {
+      B.add(0, 0, 0, .32, .06, .32, d); B.add(0, .06, 0, .22, .07, .22, m); B.add(0, .13, 0, .06, .55, .06, d); B.add(0, .3, 0, .13, .05, .13, m);   // stepped base, iron post, collar
+      B.add(0, .66, 0, .3, .04, .3, d);                                                                                                          // lantern floor
+      for (const [x, z] of [[-.12, -.12], [.12, -.12], [-.12, .12], [.12, .12]]) B.add(x, .7, z, .03, .26, .03, d);                               // frame bars
+      B.add(0, .7, 0, .22, .26, .22, '#ffe9a0', .55); B.add(0, .78, 0, .1, .1, .1, '#fff6c8');                                                 // glass + bright core
+      B.add(0, .96, 0, .34, .05, .34, m); B.add(0, 1.01, 0, .22, .05, .22, a); B.add(0, 1.06, 0, .07, .07, .07, d);                             // roof + finial
+      B.add(0, .7, 0, .52, .32, .52, '#ffe9a0', .16);                                                                                          // soft glow
+    },
     rug(B, m, a, d) { B.add(0, 0, 0, .9, .03, .74, m); B.add(0, .03, 0, .62, .012, .46, a); B.add(0, .042, 0, .3, .01, .2, m); [-.4, -.28, -.16, -.04, .08, .2, .32].forEach(x => { B.add(x, 0, .4, .05, .025, .06, d); B.add(x, 0, -.4, .05, .025, .06, d); }); },
     mailbox(B, m, a, d) { B.add(0, 0, 0, .08, .5, .08, d); B.add(0, .5, 0, .4, .26, .5, m); B.add(0, .76, 0, .34, .05, .44, darken(m, .15)); B.add(0, .55, .26, .24, .03, .02, d); B.add(.23, .55, 0, .05, .3, .05, a); B.add(.28, .75, 0, .12, .07, .05, a); },
     barrel(B, m, a, d) { B.add(0, 0, 0, .5, .62, .5, m); B.add(0, .1, 0, .54, .06, .54, d); B.add(0, .44, 0, .54, .06, .54, d); B.add(0, .62, 0, .42, .02, .42, a); },
@@ -383,8 +390,72 @@ const Vox = (() => {
     fridge(B, m, a, d) { B.add(0, 0, 0, .62, 1, .56, m); B.add(0, .02, .285, .56, .58, .02, lighten(m, .1)); B.add(0, .64, .285, .56, .32, .02, lighten(m, .1)); B.add(.22, .35, .3, .04, .2, .03, a); B.add(.22, .7, .3, .04, .16, .03, a); B.add(0, .62, .285, .6, .02, .02, d); },
     aquarium(B, m, a, d) { B.add(0, 0, 0, .74, .3, .52, m); B.add(0, .3, 0, .66, .4, .46, '#8fd3f4', .8); B.add(0, .7, 0, .72, .04, .5, d); B.add(-.22, .3, 0, .05, .2, .05, '#3fae56'); B.add(.22, .3, .05, .05, .26, .05, '#3fae56'); B.add(0, .3, 0, .6, .03, .4, '#e6d8a8'); },
     fireplace(B, m, a, d) { B.add(0, 0, 0, .86, .8, .42, m); B.add(0, .04, .22, .42, .46, .02, '#1d1a1a'); B.add(0, .8, 0, .94, .07, .5, a); for (let j = .12; j < .78; j += .16) B.add(0, j, .215, .88, .01, .01, d); B.add(0, .04, .2, .3, .06, .08, '#5a3b22'); },
-    fountain(B, m, a, d) { B.add(0, 0, 0, .9, .2, .9, m); B.add(0, .2, 0, .76, .02, .76, '#8fd3f4'); B.add(0, .2, 0, .14, .5, .14, a); B.add(0, .7, 0, .42, .08, .42, m); B.add(0, .78, 0, .32, .02, .32, '#8fd3f4'); },
-    statue(B, m, a, d) { B.add(0, 0, 0, .52, .3, .52, m); B.add(0, .3, 0, .26, .4, .18, a); B.add(0, .7, 0, .2, .2, .2, a); B.add(-.17, .38, 0, .08, .3, .08, a); B.add(.17, .38, 0, .08, .3, .08, a); },
+    fountain(B, m, a, d) {
+      B.add(0, 0, 0, .98, .1, .98, darken(m, .1));
+      for (const [x, z, w, dd] of [[0, .45, .98, .08], [0, -.45, .98, .08], [.45, 0, .08, .98], [-.45, 0, .08, .98]]) B.add(x, .1, z, w, .09, dd, lighten(m, .08));   // rim
+      for (const [x, z] of [[-.45, -.45], [.45, -.45], [-.45, .45], [.45, .45]]) { B.add(x, .1, z, .12, .14, .12, m); B.add(x, .24, z, .08, .04, .08, a); }   // corner posts
+      B.add(0, .1, 0, .82, .05, .82, '#8fd3f4', .92);                                                                                                  // lower water
+      B.add(0, .1, 0, .22, .3, .22, m); B.add(0, .38, 0, .5, .07, .5, lighten(m, .06)); B.add(0, .45, 0, .42, .03, .42, '#8fd3f4', .92);                  // pedestal + bowl
+      B.add(0, .45, 0, .12, .28, .12, m); B.add(0, .72, 0, .2, .05, .2, a); B.add(0, .77, 0, .06, .06, .06, '#bfe8fb');                                   // spout + cap
+    },
+    statue(B, m, a, d) {
+      B.add(0, 0, 0, .62, .1, .62, darken(m, .08)); B.add(0, .1, 0, .5, .16, .5, m); B.add(0, .14, .255, .26, .08, .012, d); B.add(0, .26, 0, .56, .05, .56, lighten(m, .1));   // plinth + plaque
+      B.add(0, .31, -.11, .3, .34, .05, darken(a, .18));                                                                     // cape
+      B.add(0, .31, 0, .34, .12, .26, darken(a, .08)); B.add(0, .4, 0, .28, .26, .2, a);                                      // robe flare + torso
+      B.add(0, .5, .105, .28, .03, .01, d);                                                                                  // sash
+      B.add(-.2, .42, 0, .08, .24, .1, a); B.add(-.2, .38, 0, .07, .06, .08, lighten(a, .12));                                // arm down + hand
+      B.add(.2, .5, .05, .08, .2, .1, a); B.add(.2, .68, .06, .07, .06, .08, lighten(a, .12));                                // arm raised + hand
+      B.add(.2, .74, .06, .04, .16, .04, d); B.add(.2, .9, .06, .1, .08, .1, '#ffb02a'); B.add(.2, .94, .06, .05, .06, .05, '#ffe066');   // torch + flame
+      B.add(0, .66, 0, .2, .2, .2, lighten(a, .1));                                                                          // head
+      B.add(-.05, .76, .105, .03, .03, .012, d); B.add(.05, .76, .105, .03, .03, .012, d); B.add(0, .72, .11, .04, .05, .02, darken(a, .1));   // eyes + nose
+      B.add(0, .84, 0, .23, .05, .23, d); B.add(-.09, .84, .1, .04, .04, .03, a); B.add(.09, .84, .1, .04, .04, .03, a);       // laurel crown
+    },
+    gnome(B, hat, beard, coat) {
+      const skin = '#f2c9a0', nose = '#e79a8a', boot = '#5a3b22', belt = '#3a2a1a', hatD = darken(hat, .22);
+      B.add(0, 0, 0, .46, .05, .42, '#9aa0a6'); B.add(-.12, .05, .14, .14, .03, .12, '#5f8f3f'); B.add(.14, .05, -.1, .12, .03, .1, '#5f8f3f');   // mossy stone base
+      B.add(-.08, .05, .02, .12, .09, .18, boot); B.add(.08, .05, .02, .12, .09, .18, boot);                                  // boots
+      B.add(-.08, .14, 0, .11, .12, .12, darken(coat, .25)); B.add(.08, .14, 0, .11, .12, .12, darken(coat, .25));            // trousers
+      B.add(0, .26, 0, .3, .26, .24, coat); B.add(0, .34, 0, .32, .04, .26, belt); B.add(0, .34, .13, .07, .05, .012, '#f2c200');   // coat, belt, buckle
+      B.add(-.2, .3, 0, .08, .2, .1, coat); B.add(.2, .3, 0, .08, .2, .1, coat);                                              // arms
+      B.add(-.2, .26, 0, .07, .05, .08, skin); B.add(.2, .26, 0, .07, .05, .08, skin);                                         // hands
+      B.add(0, .5, 0, .24, .16, .22, skin);                                                                                   // head
+      B.add(0, .53, .125, .08, .07, .06, nose); B.add(-.06, .58, .115, .03, .03, .012, '#3a2a1a'); B.add(.06, .58, .115, .03, .03, .012, '#3a2a1a');   // nose + eyes
+      B.add(0, .49, .12, .26, .06, .06, beard); B.add(0, .42, .125, .24, .09, .07, beard); B.add(0, .36, .13, .18, .07, .07, beard); B.add(0, .31, .13, .1, .06, .06, beard);   // tiered beard
+      B.add(0, .55, .12, .2, .035, .05, beard);                                                                               // moustache
+      B.add(0, .65, 0, .36, .04, .34, hatD);                                                                                  // hat brim
+      B.add(0, .69, 0, .28, .1, .26, hat); B.add(0, .79, 0, .22, .1, .2, hat); B.add(.01, .89, 0, .17, .1, .15, hat); B.add(.03, .99, 0, .12, .1, .1, hat); B.add(.06, 1.09, 0, .07, .09, .06, hat);   // tall pointed hat
+      B.add(0, .69, .135, .28, .03, .012, beard);                                                                             // hat band
+      B.add(.24, .05, .14, .035, .06, .035, '#f1e8d0'); B.add(.24, .11, .14, .12, .045, .12, '#d6453d'); B.add(.22, .15, .14, .03, .02, .03, '#fff'); B.add(.27, .15, .17, .03, .02, .03, '#fff');   // toadstool
+    },
+    lantern(B, glow, core, brass) {
+      const wood = '#5a3b22';
+      B.add(0, 0, 0, .3, .06, .3, '#8a8f98'); B.add(-.04, .06, 0, .07, .78, .07, wood); B.add(.06, .8, 0, .3, .05, .06, wood); B.add(.18, .72, 0, .05, .1, .05, wood);   // stone base, post, arm, hook
+      B.add(.2, .64, 0, .24, .04, .24, brass); for (const [x, z] of [[-.09, -.09], [.09, -.09], [-.09, .09], [.09, .09]]) B.add(.2 + x, .38, z, .025, .26, .025, brass);   // cap + frame bars
+      B.add(.2, .38, 0, .2, .26, .2, glow, .5); B.add(.2, .44, 0, .1, .14, .1, core); B.add(.2, .34, 0, .24, .04, .24, brass); B.add(.2, .3, 0, .08, .04, .08, brass);   // glass, glowing core, base
+      B.add(.2, .38, 0, .5, .4, .5, glow, .13);                                                                              // glow halo
+      B.add(-.2, .06, .1, .1, .12, .1, '#4e7a34'); B.add(-.24, .1, .08, .06, .1, .06, '#6fae48'); B.add(-.15, .06, .16, .05, .06, .05, '#f06595');   // grass tuft + flower
+    },
+    totem(B, moss, mint, dark) {
+      const stone = '#8b929b', stoneD = '#6b727c', eye = '#1f2328';
+      B.add(0, 0, 0, .5, .24, .44, stoneD); B.add(0, .24, 0, .44, .04, .4, stone);                                                  // base
+      B.add(-.1, .08, .225, .07, .07, .02, eye); B.add(.1, .08, .225, .07, .07, .02, eye); B.add(0, .13, .225, .18, .04, .02, eye);   // carved face (bottom)
+      B.add(0, .28, 0, .4, .26, .36, stone); B.add(-.08, .4, .185, .08, .06, .02, mint); B.add(.08, .4, .185, .08, .06, .02, mint); B.add(0, .32, .185, .14, .05, .02, eye);   // middle tier, glowing eyes
+      B.add(-.27, .34, 0, .12, .12, .2, stoneD); B.add(.27, .34, 0, .12, .12, .2, stoneD);                                           // side wings
+      B.add(0, .54, 0, .34, .26, .3, stoneD); B.add(-.07, .64, .155, .07, .07, .02, mint); B.add(.07, .64, .155, .07, .07, .02, mint); B.add(0, .58, .155, .1, .04, .02, eye);   // top tier
+      B.add(0, .8, 0, .26, .08, .22, stone); B.add(0, .88, 0, .16, .08, .14, stoneD); B.add(0, .96, 0, .06, .1, .06, moss);          // crown spike
+      B.add(0, .24, 0, .46, .05, .42, moss); B.add(.1, .54, .05, .2, .04, .22, moss); B.add(-.12, .8, 0, .12, .04, .1, moss); B.add(.14, .8, .02, .1, .04, .1, dark);   // moss caps
+      B.add(-.2, .1, .225, .04, .18, .03, moss); B.add(.2, .3, .185, .03, .14, .03, moss); B.add(-.15, .3, .185, .03, .1, .03, dark); B.add(.1, .54, .155, .03, .12, .03, moss);   // hanging vines
+      B.add(.28, 0, .18, .08, .08, .08, mint); B.add(-.3, 0, .15, .1, .1, .1, moss);                                              // leaf sprouts
+    },
+    hammock(B, leaf, light, dark) {
+      const trunk = '#7a5230';
+      for (const x of [-.44, .44]) { B.add(x, 0, 0, .09, .66, .09, trunk); B.add(x, .64, 0, .14, .05, .14, dark); B.add(x, .69, 0, .2, .04, .08, leaf); B.add(x, .69, 0, .08, .04, .2, leaf); B.add(x, .72, 0, .06, .06, .06, light); }   // palm posts + frond tops
+      const sag = [.5, .42, .36, .33, .33, .36, .42, .5];   // hammock curve: ends high, middle low
+      sag.forEach((y, i) => { const x = -.37 + i * .105; B.add(x, y, 0, .115, .05, .34, i % 2 ? leaf : light); B.add(x, y + .02, .17, .115, .04, .03, dark); B.add(x, y + .02, -.17, .115, .04, .03, dark); });
+      B.add(-.4, .5, 0, .06, .18, .03, '#e9dfc8'); B.add(.4, .5, 0, .06, .18, .03, '#e9dfc8');                                       // ropes
+      B.add(-.2, .39, 0, .16, .06, .2, '#fff3bf'); B.add(0, .35, .02, .3, .03, .2, darken(leaf, .15));                              // pillow + blanket
+      B.add(-.1, 0, .22, .1, .08, .1, '#4e7a34'); B.add(.3, 0, -.2, .1, .12, .1, '#6fae48'); B.add(.36, .1, -.2, .04, .05, .04, '#f06595');   // ground plants
+    },
     piano(B, m, a, d) { [[-.36, -.18], [.36, -.18], [-.36, .22], [.36, .22]].forEach(([x, z]) => B.add(x, 0, z, .07, .28, .07, d)); B.add(0, .28, -.05, .88, .34, .4, d); B.add(0, .62, -.05, .92, .04, .44, a); B.add(0, .28, .2, .82, .05, .16, '#fff'); [-.3, -.18, .06, .18, .3].forEach(x => B.add(x, .33, .2, .04, .03, .09, '#222')); B.add(0, .4, .12, .6, .14, .02, m); },
     door(B, m, a, d) { B.add(0, 0, 0, .52, 1.05, .1, m); B.add(0, 0, .02, .46, .98, .06, lighten(m, .08)); B.add(.16, .42, .08, .05, .1, .04, a); B.add(0, 1.05, 0, .58, .06, .14, d); },
     gate(B, m, a, d) { B.add(-.38, 0, 0, .08, .7, .08, d); B.add(.38, 0, 0, .08, .7, .08, d); B.add(0, .55, 0, .8, .06, .06, m); B.add(0, .28, 0, .8, .06, .06, m); B.add(-.12, 0, 0, .06, .55, .06, a); B.add(.12, 0, 0, .06, .55, .06, a); B.add(0, .7, 0, .2, .12, .06, a); },
@@ -403,12 +474,13 @@ const Vox = (() => {
     const B = mk(); F[f.shape](B, f.pal[0], f.pal[1], f.pal[2]);
     let top = 0; for (const b of B) if (b.a === undefined || b.a > .5) top = Math.max(top, b.y + b.h);
     const sh = f.shape, v = f.v;
-    const dyn = (sh === 'fireplace' || sh === 'fountain' || sh === 'aquarium' || sh === 'clock' || sh === 'tv' || v >= 2) ? t => {
+    const dyn = (sh === 'fireplace' || sh === 'lantern' || sh === 'fountain' || sh === 'aquarium' || sh === 'clock' || sh === 'tv' || v >= 2) ? t => {
       const D = mk();
       if (sh === 'fireplace') { const s = Math.sin(t * 7); D.add(-.06, .08, .19, .12, .2 + .06 * s, .06, '#ff7a2a'); D.add(.07, .08, .19, .12, .14 - .05 * s, .06, '#ff7a2a'); D.add(0, .1, .19, .08, .12 + .08 * s, .05, '#ffd24d'); }
       else if (sh === 'fountain') for (let k = 0; k < 4; k++) { const u = (t * .9 + k / 4) % 1; D.add(Math.cos(k * 1.57) * .25 * u, .78 + .5 * Math.sin(u * Math.PI), Math.sin(k * 1.57) * .25 * u, .05, .05, .05, '#bfe8fb'); }
       else if (sh === 'aquarium') { const x = Math.sin(t * 1.3) * .2; D.add(x, .45, .02, .1, .07, .06, f.pal[1]); D.add(x - Math.sign(Math.cos(t * 1.3)) * .07, .46, .02, .04, .05, .05, f.pal[1]); }
       else if (sh === 'clock') D.add(Math.sin(t * 3) * .04, .24, .145, .08, .08, .015, f.pal[1]);
+      else if (sh === 'lantern') for (let k = 0; k < 3; k++) { const ang = t * 1.4 + k * 2.1; D.add(.2 + Math.cos(ang) * .22, .38 + Math.sin(ang * 1.3 + k) * .16, Math.sin(ang) * .22, .035, .035, .035, '#fff59d'); }
       else if (sh === 'tv') D.add(Math.sin(t * 2) * .28, .2 + (Math.sin(t * 3.1) + 1) * .14, .075, .06, .06, .01, '#fff');
       if (v >= 2) { const b = Math.sin(t * 3) * .03; D.add(.28, top + .08 + b, -.2, .07, .07, .07, v === 3 ? '#ffe066' : '#ffffff'); if (v === 3) D.add(-.3, top - .1 - b, .2, .06, .06, .06, '#ffe066'); }
       return D;

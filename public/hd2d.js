@@ -137,15 +137,54 @@ function walkFrame(phase, moving) {
   return s > 0.15 ? 1 : s < -0.15 ? 2 : 0;
 }
 
-/** Tiny procedural chibi pixel sprite (billboard). frame = 0/1/2 walk. */
+/** Pattern accents for tops/bottoms on the 32x40 sprite (x,y,w,h = clothing rectangle; col = accent colour). */
+function clothPattern(px, pat, x, y, w, h, col) {
+  switch (pat) {
+    case 'stripes': for (let j = 1; j < h; j += 3) px(x, y + j, w, 1, col); break;
+    case 'dots': for (let j = 1; j < h; j += 3) for (let i = (j % 2 ? 1 : 3); i < w; i += 4) px(x + i, y + j, 1, 1, col); break;
+    case 'check': for (let j = 0; j < h; j += 2) for (let i = (j % 4 ? 0 : 2); i < w; i += 4) px(x + i, y + j, 2, 2, col); break;
+    case 'zigzag': for (let j = 1; j < h; j += 3) for (let i = 0; i < w; i += 2) px(x + i, y + j + ((i / 2) % 2), 1, 1, col); break;
+    case 'stars': case 'heart': px(x + 2, y + 2, 1, 1, col); px(x + w - 4, y + 4, 1, 1, col); px(x + Math.floor(w / 2), y + h - 3, 1, 1, col); px(x + 3, y + h - 3, 1, 1, col); break;
+    case 'vest': px(x + Math.floor(w / 2) - 1, y, 2, h, col); break;
+    case 'collar': px(x + 3, y, w - 6, 1, col); px(x + 4, y + 1, w - 8, 1, col); break;
+    default: break;
+  }
+}
+
+/** Hats, drawn over the head (head spans x 9..23, y 4..19 on the 32x40 sprite; `lean` shifts with the walk frame). */
+function drawHat(px, shape, c0, c1, lean) {
+  const o = lean || 0, cx = 16 + o;
+  switch (shape) {
+    case 'headband': px(9 + o, 6, 14, 2, c0); px(9 + o, 6, 14, 1, c1); break;
+    case 'cap': px(9 + o, 1, 14, 6, c0); px(7 + o, 6, 14, 2, c1); px(15 + o, 1, 2, 1, c1); break;
+    case 'beanie': px(9 + o, 1, 14, 6, c0); px(9 + o, 6, 14, 2, c1); px(cx - 1, 0, 2, 2, c1); break;
+    case 'straw': px(5 + o, 5, 22, 2, c0); px(10 + o, 1, 12, 5, c0); px(10 + o, 4, 12, 1, c1); break;
+    case 'cowboy': px(5 + o, 5, 22, 2, c0); px(10 + o, 1, 12, 5, c0); px(10 + o, 4, 12, 1, c1); px(5 + o, 4, 2, 2, c0); px(25 + o, 4, 2, 2, c0); break;
+    case 'party': for (let i = 0; i < 7; i++) px(cx - 1 - i, i, 2 + i * 2, 1, i % 3 === 2 ? c1 : c0); px(cx - 1, 0, 2, 1, c1); break;
+    case 'chef': px(10 + o, 0, 12, 5, c0); px(9 + o, 2, 14, 4, c0); px(9 + o, 5, 14, 2, c1 === c0 ? '#dfe3e8' : c1); break;
+    case 'cat': px(9 + o, 1, 4, 5, c0); px(19 + o, 1, 4, 5, c0); px(10 + o, 3, 2, 3, c1); px(20 + o, 3, 2, 3, c1); px(9 + o, 5, 14, 2, c0); break;
+    case 'flowers': for (let i = 0; i < 5; i++) px(9 + o + i * 3, 4 + (i % 2), 3, 3, i % 2 ? c1 : c0); break;
+    case 'helmet': px(9 + o, 1, 14, 6, c0); px(7 + o, 6, 18, 2, c0); px(15 + o, 1, 2, 5, c1); break;
+    case 'tophat': px(6 + o, 5, 20, 2, c0); px(10 + o, 0, 12, 6, c0); px(10 + o, 4, 12, 1, c1); break;
+    case 'wizard': for (let i = 0; i < 6; i++) px(cx - 1 - i, i, 2 + i * 2, 1, c0); px(6 + o, 6, 20, 2, c0); px(cx - 3, 4, 1, 1, c1); px(cx + 2, 5, 1, 1, c1); px(cx, 2, 1, 1, c1); break;
+    case 'crown': px(10 + o, 3, 12, 4, c0); px(10 + o, 1, 2, 3, c0); px(15 + o, 0, 2, 4, c0); px(20 + o, 1, 2, 3, c0); px(12 + o, 4, 2, 1, c1); px(18 + o, 4, 2, 1, c1); break;
+    default: break;
+  }
+}
+
+/** Tiny procedural chibi pixel sprite (billboard). frame = 0/1/2 walk. Reflects skin, hair, top, bottom, shoes and hat. */
 function makeCharSprite(avatar, cat, frame) {
   frame = frame | 0;
-  const skin = (avatar && avatar.skin) || '#f0c8a0';
-  const hair = (avatar && avatar.hairColor) || '#5a3a1a';
-  const C = cat && cat.CLOTH;
-  const top = C && avatar && C[avatar.top] ? C[avatar.top].c[0] : '#7ec8e8';
-  const bot = C && avatar && C[avatar.bottom] ? C[avatar.bottom].c[0] : '#6b8cae';
-  const key = 'ch:' + skin + hair + top + bot + (avatar && avatar.gender) + ':f' + frame;
+  const av = avatar || {};
+  const skin = av.skin || '#f0c8a0';
+  const hair = av.hairColor || '#5a3a1a';
+  const C = (cat && cat.CLOTH) || {};
+  const topD = C[av.top] || C.top_tee_white, botD = C[av.bottom] || C.bot_jeans, shoeD = C[av.shoes] || C.shoe_plain;
+  const hatD = av.hat ? C[av.hat] : null;
+  const top = topD ? topD.c[0] : '#7ec8e8', topAcc = topD ? topD.c[1] : top;
+  const bot = botD ? botD.c[0] : '#6b8cae', botAcc = botD ? botD.c[1] : bot;
+  const shoe = shoeD ? shoeD.c[0] : '#8a7060', shoeAcc = shoeD ? shoeD.c[1] : shoe;
+  const key = ['ch', skin, hair, av.top, av.bottom, av.shoes, av.hat || '', av.gender, 'f' + frame].join(':');
   if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
 
   const w = 32, h = 40;
@@ -159,17 +198,29 @@ function makeCharSprite(avatar, cat, frame) {
   const R = -L;
   const aL = frame === 1 ? 1 : frame === 2 ? -1 : 0;
   const aR = -aL;
-  // shoes
-  px(10, 36 + (L > 0 ? 0 : L === 0 ? 0 : 1), 5, 3, '#8a7060');
-  px(17, 36 + (R > 0 ? 0 : R === 0 ? 0 : 1), 5, 3, '#8a7060');
-  // legs
-  px(11, 28 + (L < 0 ? 1 : 0), 4, 8 + (L > 0 ? -1 : 0), bot);
-  px(17, 28 + (R < 0 ? 1 : 0), 4, 8 + (R > 0 ? -1 : 0), bot);
+  const len = (botD && botD.len) || 'long';
+  const legLen = (side) => 8 + (side > 0 ? -1 : 0);
+  // legs: long pants colour the whole leg; shorts/skirts show skin below the hem
+  for (const [lx, side] of [[11, L], [17, R]]) {
+    const ly = 28 + (side < 0 ? 1 : 0), lh = legLen(side);
+    px(lx, ly, 4, lh, len === 'long' ? bot : skin);
+    if (len === 'long') clothPattern(px, botD && botD.pat, lx, ly, 4, lh, botAcc);
+    else if (len === 'short') { px(lx, ly, 4, 4, bot); clothPattern(px, botD && botD.pat, lx, ly, 4, 4, botAcc); }
+  }
+  if (len === 'skirt') { px(9, 27, 14, 5, bot); clothPattern(px, botD && botD.pat, 9, 27, 14, 5, botAcc); }
+  // shoes (colour + sole accent)
+  px(10, 36 + (L > 0 ? 0 : L === 0 ? 0 : 1), 5, 3, shoe); px(17, 36 + (R > 0 ? 0 : R === 0 ? 0 : 1), 5, 3, shoe);
+  if (av.shoes && av.shoes !== 'shoe_plain') { px(10, 38 + (L > 0 || L === 0 ? 0 : 1), 5, 1, shoeAcc); px(17, 38 + (R > 0 || R === 0 ? 0 : 1), 5, 1, shoeAcc); }
   // body (tiny lean when walking)
   const lean = frame ? (frame === 1 ? -1 : 1) : 0;
   px(10 + lean, 18, 12, 11, top);
-  // arms swing opposite legs
-  px(6, 19 + aL, 4, 8, skin); px(22, 19 + aR, 4, 8, skin);
+  clothPattern(px, topD && topD.pat, 10 + lean, 18, 12, 11, topAcc);
+  // waistband so the top reads separate from the bottom
+  if (len !== 'skirt') px(10 + lean, 27, 12, 2, bot);
+  // arms swing opposite legs (long-sleeved tops colour the arm, hands stay skin)
+  const longSleeve = !!(topD && topD.long);
+  px(6, 19 + aL, 4, 8, longSleeve ? top : skin); px(22, 19 + aR, 4, 8, longSleeve ? top : skin);
+  if (longSleeve) { px(6, 25 + aL, 4, 2, skin); px(22, 25 + aR, 4, 2, skin); }
   // head
   px(9 + lean, 6, 14, 13, skin);
   // eyes
@@ -180,7 +231,9 @@ function makeCharSprite(avatar, cat, frame) {
   px(15 + lean, 15, 2, 1, '#d09080');
   // hair
   px(9 + lean, 4, 14, 5, hair); px(8 + lean, 7, 3, 8, hair); px(21 + lean, 7, 3, 8, hair);
-  if (avatar && avatar.gender === 'female') px(8 + lean, 14, 3, 12, hair), px(21 + lean, 14, 3, 12, hair);
+  if (av.gender === 'female') px(8 + lean, 14, 3, 12, hair), px(21 + lean, 14, 3, 12, hair);
+  // hat goes on last, over the hair
+  if (hatD) drawHat(px, hatD.shape, hatD.c[0], hatD.c[1], lean);
   inkOutline(g, w, h);
 
   const t = new THREE.CanvasTexture(c);
@@ -191,9 +244,9 @@ function makeCharSprite(avatar, cat, frame) {
   return t;
 }
 
-function makeCritterSprite(kind, pet, frame) {
+function makeCritterSprite(kind, pet, frame, sheared) {
   frame = frame | 0;
-  const key = 'cr:' + kind + ':' + !!pet + ':f' + frame;
+  const key = 'cr:' + kind + ':' + !!pet + ':f' + frame + (sheared ? ':s' : '');
   if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
   const c = document.createElement('canvas');
   c.width = 24; c.height = 20;
@@ -210,7 +263,8 @@ function makeCritterSprite(kind, pet, frame) {
     px(3, 8 + Math.abs(hop), 2, 2, '#8a7a70');
     px(6 + hop, 16, 2, 3, '#b0a8a0'); px(14 - hop, 16, 2, 3, '#b0a8a0');
   } else if (kind === 'sheep' || (!pet && kind !== 'chicken' && kind !== 'cow')) {
-    px(5, 7 + Math.abs(hop), 12, 9, '#fffaf5'); px(3, 6 + Math.abs(hop), 5, 5, '#c8c0b8');
+    if (sheared) { px(6, 9 + Math.abs(hop), 10, 6, '#f1c9bd'); px(3, 7 + Math.abs(hop), 5, 5, '#c8c0b8'); px(15, 10 + Math.abs(hop), 2, 2, '#f1c9bd'); }   // shorn: pink, no fleece
+    else { px(5, 7 + Math.abs(hop), 12, 9, '#fffaf5'); px(3, 6 + Math.abs(hop), 5, 5, '#c8c0b8'); }
     px(7 + hop, 16, 2, 3, '#b8b0a8'); px(13 - hop, 16, 2, 3, '#b8b0a8');
   } else if (kind === 'pet_dog' || kind === 'dog') {
     px(6, 8 + Math.abs(hop), 12, 7, '#e8c9a8'); px(3, 6 + Math.abs(hop), 6, 6, '#e8c9a8'); px(16, 9 + Math.abs(hop), 5, 2, '#e8c9a8');
@@ -545,8 +599,10 @@ class View {
           top = Math.max(top, b.y + b.h);
         }
       }
-      // one cast shadow per object (not per box), so stacked parts never double-darken
-      if (top > 0.45 && mxx > mnx) this._bakeCastShadow(this.staticRoot, mnx, mxx, mnz, mxz, top);
+      // one cast shadow per object (not per box), so stacked parts never double-darken.
+      // Multi-tile buildings opt out per tile (noShadow) and supply a single shadowBox for the whole building.
+      if (p.shadowBox) { const sb = p.shadowBox; this._bakeCastShadow(this.staticRoot, sb.x0, sb.x1, sb.z0, sb.z1, sb.h); }
+      else if (!p.noShadow && top > 0.45 && mxx > mnx) this._bakeCastShadow(this.staticRoot, mnx, mxx, mnz, mxz, top);
     }
   }
 
@@ -557,7 +613,7 @@ class View {
     const phase = opts.walk || 0;
     const frame = walkFrame(phase, moving);
     let tex = texOrKind;
-    if (typeof texOrKind === 'string') tex = makeCritterSprite(texOrKind, !!opts.pet, frame);
+    if (typeof texOrKind === 'string') tex = makeCritterSprite(texOrKind, !!opts.pet, frame, !!opts.sheared);
     const spr = this._takeSprite();
     spr.material.map = tex;
     spr.material.needsUpdate = true;

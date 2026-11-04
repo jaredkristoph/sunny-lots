@@ -87,6 +87,14 @@ function ensureUser(u) {
   if (u.expandLand === undefined) u.expandLand = null;
   if (u.houseLand === undefined) u.houseLand = null;
   if (!u.animalNames) u.animalNames = {}; // 'chicken:0' -> 'Clucky'
+  if (!u.animalReady) u.animalReady = {}; // 'cow:0' / 'sheep:2' -> last milked / sheared (ms)
+  if (!u.animalSex) u.animalSex = {};     // same keys -> 'm' | 'f' (random, fixed at purchase)
+  if (!u.animalBorn) u.animalBorn = {};   // 'chicken:0' / 'pet:pet_dog' -> purchase time = "born" date (ms)
+  { // animals/pets owned before birth dates existed get today's date the first time we see them
+    const t0 = Date.now();
+    for (const [kind, n] of Object.entries(u.animals)) for (let i = 0; i < n; i++) { if (!u.animalBorn[kind + ':' + i]) u.animalBorn[kind + ':' + i] = t0; if (!u.animalSex[kind + ':' + i]) u.animalSex[kind + ':' + i] = rndSex(); }
+    for (const pid of u.pets) { if (!u.animalBorn['pet:' + pid]) u.animalBorn['pet:' + pid] = t0; if (!u.animalSex['pet:' + pid]) u.animalSex['pet:' + pid] = rndSex(); }
+  }
   if (!u.animalStay) u.animalStay = 'farm'; // farm | house
   if (!u.petStay) u.petStay = 'follow'; // follow | farm | house
   if (!u.seeds) u.seeds = {};
@@ -225,7 +233,7 @@ const meView = u => ({
   name: u.name, money: u.money, seeds: u.seeds, crops: u.crops, furniture: u.furniture,
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
-  animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames,
+  animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames, animalReady: u.animalReady, animalBorn: u.animalBorn, animalSex: u.animalSex,
   stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt,
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
@@ -233,7 +241,7 @@ const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
 const sendCasino = (c, game) => send(c.ws, Object.assign({ t: 'casino_info', bj: game === 'blackjack' ? Casino.bjView(c.u) : undefined }, Casino.info(db, game, c.u.name)));
 const playerList = () => [...online.values()].map(c => ({
   n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
-  animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames,
+  animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames, animalReady: c.u.animalReady, animalBorn: c.u.animalBorn, animalSex: c.u.animalSex,
   e: c.emote || null, es: c.emoteAt || 0,
   land: c.u.land, houseLand: c.u.houseLand, expandLand: c.u.expandLand,
 }));
@@ -253,6 +261,7 @@ const ownsCloth = (u, id) => {
   return cl.price === 0 || u.clothes.includes(id);
 };
 
+const rndSex = () => (require('crypto').randomInt(2) ? 'm' : 'f');
 function spawnFor(u) {
   if (u.land != null) {
     const o = C.WORLD.lands[u.land];
@@ -354,14 +363,22 @@ wss.on('connection', ws => {
         break;
       }
       case 'name_animal': {
-        const kind = m.kind, a = C.ANIMALS[kind];
-        const cap = kind === 'cow' ? 4 : kind === 'sheep' ? 6 : 8;   // same cap the client draws
-        if (!a || !Number.isInteger(m.idx) || m.idx < 0 || m.idx >= Math.min(u.animals[kind] || 0, cap)) return;
+        const kind = m.kind;
+        let key, label;
+        if (kind === 'pet') {   // pets are unique per species: key by pet id
+          const pet = C.PET_BY[m.id];
+          if (!pet || !u.pets.includes(pet.id)) return;
+          key = 'pet:' + pet.id; label = pet.name.toLowerCase();
+        } else {
+          const a = C.ANIMALS[kind];
+          const cap = kind === 'cow' ? 4 : kind === 'sheep' ? 6 : 8;   // same cap the client draws
+          if (!a || !Number.isInteger(m.idx) || m.idx < 0 || m.idx >= Math.min(u.animals[kind] || 0, cap)) return;
+          key = kind + ':' + m.idx; label = a.name.toLowerCase();
+        }
         const name = String(m.name || '').replace(/[^\p{L}\p{N} '_.!-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 14);
-        const key = kind + ':' + m.idx;
         if (name) u.animalNames[key] = name; else delete u.animalNames[key];
         touch(); sendMe(c); playersDirty = true;
-        ok(name ? 'Named your ' + a.name.toLowerCase() + ' ' + name + '!' : 'Name cleared.');
+        ok(name ? 'Named your ' + label + ' ' + name + '!' : 'Name cleared.');
         break;
       }
       case 'set_stay': {
@@ -532,13 +549,13 @@ wss.on('connection', ws => {
           qty = 1;
           if ((u.animals[m.id] || 0) >= a.max) return err('Pen is full (' + a.max + ' max).');
           if (u.money < a.buy) return err('Not enough money.');
-          u.money -= a.buy; u.animals[m.id] = (u.animals[m.id] || 0) + 1;
+          u.money -= a.buy; u.animalBorn[m.id + ':' + (u.animals[m.id] || 0)] = Date.now(); u.animalSex[m.id + ':' + (u.animals[m.id] || 0)] = rndSex(); u.animals[m.id] = (u.animals[m.id] || 0) + 1;
           if (m.id === 'chicken' && !u.animalAt.egg) u.animalAt.egg = Date.now();
           playersDirty = true;
         } else if (m.kind === 'pet') {
           const p = C.PET_BY[m.id]; if (!p || u.pets.includes(p.id)) return;
           if (u.money < p.price) return err('Not enough money.');
-          u.money -= p.price; u.pets.push(p.id);
+          u.money -= p.price; u.pets.push(p.id); u.animalBorn['pet:' + p.id] = Date.now(); u.animalSex['pet:' + p.id] = rndSex();
           playersDirty = true;
         } else return;
         touch(); sendMe(c);
@@ -630,7 +647,7 @@ wss.on('connection', ws => {
         const a = C.ANIMALS[kind];
         if (!a || !(u.animals[kind] > 0)) return err('No ' + (a ? a.name : 'animal') + ' to process.');
         u.animals[kind]--;
-        for (const k of Object.keys(u.animalNames)) { const [kk, ii] = k.split(':'); if (kk === kind && Number(ii) >= u.animals[kind]) delete u.animalNames[k]; }
+        for (const map of [u.animalNames, u.animalReady, u.animalBorn, u.animalSex]) for (const k of Object.keys(map)) { const [kk, ii] = k.split(':'); if (kk === kind && Number(ii) >= u.animals[kind]) delete map[k]; }
         const meatN = kind === 'chicken' ? 1 : 2;
         addProduct('meat', meatN);
         if (kind === 'sheep') addProduct('wool', 1);
@@ -638,19 +655,21 @@ wss.on('connection', ws => {
         ok('Processed 1 ' + a.name.toLowerCase() + ' → meat' + (kind === 'sheep' ? ' + wool' : ''));
         break;
       }
-      case 'milk': {
-        const kind = m.id === 'cow' ? 'cow' : 'sheep';
-        const a = C.ANIMALS[kind];
-        if (!(u.animals[kind] > 0)) return err('You need a ' + a.name + ' first.');
-        const key = kind === 'cow' ? 'milkCow' : 'milkSheep';
-        const last = u.animalAt[key] || 0;
-        if (Date.now() - last < a.milkCd * 1000) return err('Already milked recently.');
-        if (!m.ok) return err('Finish the milking mini-game!');
-        u.animalAt[key] = Date.now();
-        addProduct('milk', 1);
-        if (kind === 'sheep' && Math.random() < 0.35) addProduct('wool', 1);
-        touch(); sendMe(c);
-        ok('Got fresh milk' + (kind === 'sheep' ? ' (maybe wool too!)' : '') + '!');
+      case 'harvest_animal': {   // milk a cow / shear a sheep — per-animal cooldown, no mini-game
+        const kind = m.kind;
+        if (kind !== 'cow' && kind !== 'sheep') return;
+        const a = C.ANIMALS[kind], have = u.animals[kind] || 0;
+        if (!have) return err('You need a ' + a.name.toLowerCase() + ' first.');
+        const cd = (kind === 'cow' ? a.milkCd : a.woolCd) * 1000, cap = Math.min(have, a.max);
+        const idxs = m.idx === 'all' ? [...Array(cap).keys()] : (Number.isInteger(m.idx) && m.idx >= 0 && m.idx < cap ? [m.idx] : []);
+        if (!idxs.length) return;
+        const t0 = Date.now(); let n = 0;
+        for (const i of idxs) { const k = kind + ':' + i; if (t0 - (u.animalReady[k] || 0) >= cd) { u.animalReady[k] = t0; n++; } }
+        if (!n) return err(kind === 'cow' ? 'Not ready to milk yet — give it a little time.' : 'The wool is still growing back.');
+        addProduct(kind === 'cow' ? 'milk' : 'wool', n);
+        touch(); sendMe(c); playersDirty = true;
+        const who = idxs.length === 1 ? (u.animalNames[kind + ':' + idxs[0]] || ('your ' + a.name.toLowerCase())) : n + ' ' + (kind === 'sheep' ? 'sheep' : 'cows');
+        ok(kind === 'cow' ? 'Milked ' + who + ': +' + n + ' milk 🥛' : 'Sheared ' + who + ': +' + n + ' wool ✂️');
         break;
       }
       case 'avatar': {

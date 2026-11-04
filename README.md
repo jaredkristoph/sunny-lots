@@ -45,6 +45,11 @@ WASD / arrows to walk (Shift = run, movement follows the camera), **Q / E** or r
 rotate the camera, mouse wheel to zoom, click a land to claim it, click your tiles to plant,
 decorate or harvest, **F** at the shop, **Enter** to chat, **B** bag, **I** wardrobe.
 
+## Livestock
+Click a cow to milk it or a sheep to shear it (no mini-games). Each animal has its own cooldown
+(`milkCd` / `woolCd` in `catalog.js`); a sheared sheep looks shorn until the wool grows back. Click any
+of your animals or pets to name them — names are shown above them for everyone.
+
 ## Sunny Casino 🎰
 Two tables east of the park (click one to play): **Roulette** (single zero; number 35:1, dozens 2:1,
 red/black/odd/even/low/high 1:1) and **Blackjack** (dealer stands on 17, blackjack pays 3:2, double on

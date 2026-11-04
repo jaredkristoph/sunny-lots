@@ -272,10 +272,10 @@ const NPC_HOME_FURN = [
 
 // Exclusive bush loot — not sold in shops (buyable: false). ~5% drop when foraging.
 const RARE_FURN = [
-  { id: 'bush_gnome', name: 'Garden Gnome', shape: 'statue', v: 0, pal: ['#3d9a6a', '#fff', '#2b6b48'], price: 0, buyable: false },
-  { id: 'bush_lantern', name: 'Firefly Lantern', shape: 'lamp', v: 2, pal: ['#ffe066', '#fff9db', '#c9a227'], price: 0, buyable: false },
-  { id: 'bush_totem', name: 'Moss Totem', shape: 'statue', v: 1, pal: ['#5c7a3a', '#b2f2bb', '#33481f'], price: 0, buyable: false },
-  { id: 'bush_hammock', name: 'Leaf Hammock', shape: 'sofa', v: 0, pal: ['#8ce99a', '#d8f5a2', '#2f9e44'], price: 0, buyable: false },
+  { id: 'bush_gnome', name: 'Garden Gnome', shape: 'gnome', v: 0, pal: ['#d6453d', '#f8f4ec', '#3b5ba5'], price: 0, buyable: false },
+  { id: 'bush_lantern', name: 'Firefly Lantern', shape: 'lantern', v: 1, pal: ['#ffe066', '#fff9db', '#c9a227'], price: 0, buyable: false },
+  { id: 'bush_totem', name: 'Moss Totem', shape: 'totem', v: 1, pal: ['#5c7a3a', '#b2f2bb', '#33481f'], price: 0, buyable: false },
+  { id: 'bush_hammock', name: 'Leaf Hammock', shape: 'hammock', v: 0, pal: ['#8ce99a', '#d8f5a2', '#2f9e44'], price: 0, buyable: false },
 ];
 const RARE_CLOTH = [
   { id: 'top_leafcloak', name: 'Leaf Cloak', slot: 'top', price: 0, c: ['#40c057', '#212529'], pat: 'zigzag', long: true, buyable: false },
@@ -293,7 +293,7 @@ const BUSH_LOOT = [...RARE_FURN.map(f => ({ kind: 'furn', id: f.id })), ...RARE_
 const ANIMALS = {
   chicken: { name: 'Chicken', buy: 90, eggEvery: 480, eggSell: 14, meatSell: 45, max: 8 },
   cow: { name: 'Cow', buy: 280, milkPay: [16, 26], milkCd: 70, meatSell: 120, max: 4 },
-  sheep: { name: 'Sheep', buy: 200, milkPay: [14, 22], milkCd: 60, woolSell: 20, meatSell: 90, max: 6 },
+  sheep: { name: 'Sheep', buy: 200, woolCd: 90, woolSell: 20, meatSell: 90, max: 6 },   // woolCd: seconds for a sheared sheep to regrow
 };
 const PETS = [
   { id: 'pet_dog', name: 'Puppy', price: 350 },

@@ -69,7 +69,7 @@
   const furnIcon = f => h('img', { src: iconURL('f' + f.id, () => { const m = Vox.furnModel(f); return Vox.renderIcon(m.boxes.concat(m.dyn ? m.dyn(.5) : []), { w: 64, h: 64, ppt: 46, psi: fpsiFor(.78), hcf: .86 }); }) });
   function clothIcon(it) {
     const a = { ...me.avatar, [it.slot]: it.id };
-    return h('img', { src: iconURL('c' + it.id + a.gender + a.skin + a.hairColor, () => Vox.renderIcon(Vox.charBoxes(a, cat, 0, false), { w: 56, h: 72, ppt: 50, psi: .78 + PI, hcf: .9 })), style: 'height:72px' });
+    return h('img', { src: iconURL('c' + [it.id, a.gender, a.skin, a.hairColor, a.top, a.bottom, a.shoes, a.hat].join('|'), () => spriteCanvas(a, 2, 0)), style: 'width:64px;height:80px;image-rendering:pixelated' });
   }
 
   // ---------- modal system ----------
@@ -110,7 +110,7 @@
     const po = players[p.n];
     if (po.es !== p.es) { po.es = p.es; po.emote = p.e || null; po.emoteSince = performance.now(); }   // new emote (or cleared)
     Object.assign(po, {
-      animalNames: p.animalNames || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+      animalNames: p.animalNames || {}, animalReady: p.animalReady || {}, animalBorn: p.animalBorn || {}, animalSex: p.animalSex || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
       land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
     });
   }
@@ -215,9 +215,17 @@
   $('#b-out').onclick = logout;
 
   // ---------- avatar editor / wardrobe ----------
+  // The wardrobe shows the exact sprite used in the world (HD2D.makeCharSprite), just scaled up.
+  function spriteCanvas(av, scale, frame) {
+    const src = HD2D.makeCharSprite(av, cat, frame || 0).image;
+    const c = document.createElement('canvas');
+    c.width = src.width * scale; c.height = src.height * scale;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(src, 0, 0, c.width, c.height);
+    return c;
+  }
   function avatarPreview() {
-    const c = Vox.renderIcon(Vox.charBoxes(me.avatar, cat, 0, false), { w: 64, h: 84, ppt: 60, psi: .78 + PI, hcf: .92 });
-    c.style.cssText = 'width:192px;height:252px;image-rendering:pixelated;background:linear-gradient(#cfeeff,#d8f5c4);border-radius:14px;border:2px solid #b8862b';
+    const c = spriteCanvas(me.avatar, 6, 0);
+    c.style.cssText = 'width:192px;height:240px;image-rendering:pixelated;background:linear-gradient(#cfeeff,#d8f5c4);border-radius:14px;border:2px solid #b8862b';
     return c;
   }
   function look() {
@@ -244,8 +252,11 @@
       if (tab === 'look') { body.append(look()); return body; }
       const items = cat.CLOTHES.filter(c => c.slot === tab && owns(c));
       const grid = h('div', { class: 'grid' });
-      if (tab === 'hat') grid.append(h('div', { class: 'item' + (!me.avatar.hat ? ' own' : ''), onclick: () => send({ t: 'avatar', hat: '' }), style: 'cursor:pointer' }, h('div', { style: 'font-size:34px' }, '🚫'), h('div', { class: 'nm' }, 'No hat')));
-      items.forEach(it => grid.append(h('div', { class: 'item' + (me.avatar[tab] === it.id ? ' own' : ''), style: 'cursor:pointer', onclick: () => send({ t: 'avatar', [tab]: it.id }) }, clothIcon(it), h('div', { class: 'nm' }, it.name), h('div', { class: 'muted' }, me.avatar[tab] === it.id ? 'Wearing' : 'Tap to wear'))));
+      const mini = spriteCanvas(me.avatar, 3, 0);   // live preview on every tab, so a tap visibly changes your character
+      mini.style.cssText = 'display:block;margin:0 auto 8px;width:96px;height:120px;image-rendering:pixelated;background:linear-gradient(#cfeeff,#d8f5c4);border-radius:12px;border:2px solid #b8862b';
+      body.append(mini);
+      if (tab === 'hat') grid.append(h('div', { class: 'item' + (!me.avatar.hat ? ' own' : ''), onclick: () => { send({ t: 'avatar', hat: '' }); toast('Took your hat off'); }, style: 'cursor:pointer' }, h('div', { style: 'font-size:34px' }, '🚫'), h('div', { class: 'nm' }, 'No hat')));
+      items.forEach(it => grid.append(h('div', { class: 'item' + (me.avatar[tab] === it.id ? ' own' : ''), style: 'cursor:pointer', onclick: () => { send({ t: 'avatar', [tab]: it.id }); toast('Wearing ' + it.name); } }, clothIcon(it), h('div', { class: 'nm' }, it.name), h('div', { class: 'muted' }, me.avatar[tab] === it.id ? 'Wearing' : 'Tap to wear'))));
       body.append(grid, h('div', { class: 'muted', style: 'margin-top:8px' }, 'More outfits are sold at the shop.'));
       return body;
     });
@@ -457,15 +468,17 @@
     const S = WD.shop;
     for (let j = 0; j < S.h; j++) for (let i = 0; i < S.w; i++) {
       const B = Vox.mk(); B.add(0, 0, 0, 1, 1.5, 1, (i + j) % 2 ? '#f6e7c1' : '#f0dfb5');
-      B.add(0, 1.5, 0, 1.1, .12, 1.1, i % 2 ? '#fff' : '#e5533d');
+      // roof slab is exactly 1 tile wide in x: neighbouring red/white stripes must not overlap, or their coplanar tops z-fight (flicker)
+      B.add(0, 1.5, 0, 1.0, .12, 1.1, i % 2 ? '#fff' : '#e5533d');
       if (j === 1 || j === 0) B.add(0, 1.62, 0, 1.0, .12, 1.0, '#b5432f');
       if (j === S.h - 1) {
         if (i === 2) B.add(.25, 0, .5, .5, 1.05, .04, '#7a5230'); else if (i === 3) B.add(-.25, 0, .5, .5, 1.05, .04, '#7a5230');
         else B.add(0, .5, .5, .6, .55, .04, '#bfe8fb');
         B.add(0, 1.08, .72, 1, .08, .45, i % 2 ? '#fff' : '#e5533d');
       }
-      piece(B, S.x + i + .5, S.y + j + .5, 1.3);
+      statics.push({ B, x: S.x + i + .5, z: S.y + j + .5, r: 1.3, noShadow: true });   // one shop-wide shadow below, not 20 overlapping ones
     }
+    statics.push({ B: [], x: 0, z: 0, r: 1, shadowBox: { x0: S.x, x1: S.x + S.w, z0: S.y, z1: S.y + S.h, h: 1.7 } });
     const crate = Vox.mk(); crate.add(0, 0, 0, .5, .4, .5, '#b98a4e').add(0, .4, 0, .52, .04, .52, '#8a6a3a'); piece(crate, S.x - .5, S.y + S.h + .1, .8); piece(crate, S.x + S.w + .5, S.y + S.h + .1, .8);
     piece(Vox.plantBoxes(cat.SEED_BY.pumpkin, 3, false), S.x - .5, S.y + S.h + .1, .6);
     piece(Vox.plantBoxes(cat.SEED_BY.sunflower, 3, false), S.x + S.w + .5, S.y + S.h + .1, .6);
@@ -530,7 +543,7 @@
     { let cb = null;
       for (const c of critters) {
         if (!c.live) continue;
-        const f = view.toScreen(c.x, 0, c.z), tp = view.toScreen(c.x, c.kind === 'cow' ? 1.1 : .9, c.z), hw = Math.max(14, view.ppt * .4);
+        const f = view.toScreen(c.x, 0, c.z), tp = view.toScreen(c.x, c.kind === 'cow' ? 1.1 : c.pet ? .7 : .9, c.z), hw = Math.max(14, view.ppt * .4);
         if (Math.abs(bx - f[0]) < hw && by < f[1] + 6 && by > tp[1] - 4 && (!cb || f[2] < cb.d)) cb = { c, d: f[2] };
       }
       if (cb) return { critter: cb.c }; }
@@ -712,25 +725,46 @@
         toast(ok ? 'Nice run!' : 'Try again next time', !ok);
       } }, 'Play ' + gname)));
   }
+  // "Born" = the day it was bought. Shown in the animal/pet window for everyone.
+  function bornLine(c) {
+    if (!c.born) return null;
+    const sx = c.sex === 'm' ? '♂ Male' : c.sex === 'f' ? '♀ Female' : '';
+    const d = new Date(c.born), days = Math.max(0, Math.floor((now() - c.born) / 86400000));
+    return h('div', { style: 'font-weight:700' }, (sx ? sx + ' · ' : '') + '🎂 Born ' + d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + ' · ' + (days === 0 ? 'born today' : days + (days === 1 ? ' day old' : ' days old')));
+  }
+  let critterIv = null;
+  const harvestReady = c => { const a = cat.ANIMALS[c.kind]; if (!a || c.pet) return true; const cd = (c.kind === 'cow' ? a.milkCd : a.woolCd) * 1000; return !cd || now() >= (c._last || 0) + cd; };
+  // Name tag sits just above the sprite's head: sprite is 40px tall (head top ~4px down) × scale / 32px per unit.
+  const HEAD_Y = sc => sc * (36 / 32) + .1;
+  const tagLift = (emote, et) => emote === 'jump' ? .45 * Math.abs(Math.sin((et || 0) * 7)) : emote === 'dance' ? .16 * Math.abs(Math.sin((et || 0) * 9)) : emote === 'sit' ? -.3 : emote === 'spin' ? .1 * Math.abs(Math.sin((et || 0) * 5)) : 0;
   const CRITTER_ICON = { chicken: '🐔', cow: '🐄', sheep: '🐑' };
   function openCritter(c) {
     c._shownUntil = Date.now() + 6000;
-    const a = cat.ANIMALS[c.kind], label = a ? a.name : c.kind, icon = CRITTER_ICON[c.kind] || '🐾';
+    const pdef = c.pet ? (cat.PETS || []).find(x => x.id === c.pid) : null;
+    const a = cat.ANIMALS[c.kind], label = pdef ? pdef.name : (a ? a.name : c.kind), icon = c.pet ? '🐾' : (CRITTER_ICON[c.kind] || '🐾');
     if (c.owner !== myName) {
       return openModal(icon + ' ' + label, () => h('div', { class: 'center' },
         h('div', { style: 'font-size:24px;font-weight:900' }, c.name || ('Unnamed ' + label.toLowerCase())),
-        h('div', { class: 'muted' }, c.owner + "'s " + label.toLowerCase())));
+        h('div', { class: 'muted' }, c.owner + "'s " + label.toLowerCase()), bornLine(c)));
     }
     openModal(icon + ' Name your ' + label.toLowerCase(), () => {
       const inp = h('input', { class: 'txt', type: 'text', maxlength: 14, placeholder: 'e.g. Clucky', value: c.name || '' });
-      const save = () => { send({ t: 'name_animal', kind: c.kind, idx: c.idx, name: inp.value }); closeModal(); };
+      const cd = c.pet || (c.kind !== 'cow' && c.kind !== 'sheep') ? 0 : (c.kind === 'cow' ? a.milkCd : a.woolCd) * 1000;
+      let act = null;
+      if (cd) {
+        act = h('button', { class: 'btn green' });
+        const upd = () => { const w = c._last + cd - now(); act.disabled = w > 0; act.textContent = w > 0 ? (c.kind === 'cow' ? '🥛 Milk' : '✂️ Shear') + ' · ready in ' + Math.ceil(w / 1000) + 's' : (c.kind === 'cow' ? '🥛 Milk this cow' : '✂️ Shear this sheep'); };
+        act.onclick = () => send({ t: 'harvest_animal', kind: c.kind, idx: c.idx });
+        upd(); clearInterval(critterIv); critterIv = setInterval(upd, 500); modalClose = () => clearInterval(critterIv);
+      }
+      const save = () => { send(c.pet ? { t: 'name_animal', kind: 'pet', id: c.pid, name: inp.value } : { t: 'name_animal', kind: c.kind, idx: c.idx, name: inp.value }); closeModal(); };
       inp.onkeydown = e => { if (e.key === 'Enter') save(); };
       setTimeout(() => inp.focus(), 30);
-      return h('div', { class: 'center' }, inp,
+      return h('div', { class: 'center' }, bornLine(c), act, inp,
         h('div', { class: 'row', style: 'justify-content:center;gap:8px;margin-top:10px' },
           h('button', { class: 'btn green', onclick: save }, 'Save name'),
           c.name ? h('button', { class: 'btn', onclick: () => { inp.value = ''; save(); } }, 'Clear') : null),
-        h('div', { class: 'muted', style: 'margin-top:8px' }, 'Other players can see this name when they click your ' + label.toLowerCase() + '.'));
+        h('div', { class: 'muted', style: 'margin-top:8px' }, 'Everyone sees this name above your ' + label.toLowerCase() + '.'));
     });
   }
   // ---------- emotes ----------
@@ -933,12 +967,14 @@
         box.append(h('button', { class: 'btn', onclick: () => send({ t: 'collect_eggs' }) }, 'Collect eggs'));
         box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: 'chicken' }) }, 'Process chicken → meat'));
       } else {
-        box.append(h('button', { class: 'btn', onclick: async () => {
-          closeModal();
-          const ok = await runMinigame('typing', 'Milk the ' + a.name + ' · type carefully');
-          send({ t: 'milk', id: kind, ok: ok ? 1 : 0 });
-        } }, 'Milk (typing game)'));
-        box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: kind }) }, 'Process → meat' + (kind === 'sheep' ? ' + wool' : '')));
+        const cd = (kind === 'cow' ? a.milkCd : a.woolCd) * 1000, cap = Math.min(n, a.max);
+        let ready = 0, wait = Infinity;
+        for (let i = 0; i < cap; i++) { const w = ((me.animalReady || {})[kind + ':' + i] || 0) + cd - now(); if (w <= 0) ready++; else wait = Math.min(wait, w); }
+        box.append(h('button', { class: 'btn', disabled: !ready, onclick: () => send({ t: 'harvest_animal', kind, idx: 'all' }) },
+          (kind === 'cow' ? '🥛 Milk all ready cows' : '✂️ Shear all ready sheep') + ' (' + ready + '/' + cap + ')'));
+        if (cap && !ready) box.append(h('div', { class: 'muted' }, (kind === 'cow' ? 'Next milk' : 'Wool regrows') + ' in ' + Math.ceil(wait / 1000) + 's'));
+        box.append(h('div', { class: 'muted' }, 'Tip: click an animal on your land to ' + (kind === 'cow' ? 'milk' : 'shear') + ' just that one.'));
+        box.append(h('button', { class: 'btn red', onclick: () => send({ t: 'slaughter', id: kind }) }, 'Process → meat'));
       }
       box.append(h('div', { class: 'muted', style: 'margin-top:8px' }, 'Livestock roam your farm or house lot:'));
       box.append(h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' },
@@ -1125,14 +1161,14 @@
     const next = new Map();
     const owners = [];
     if (me) owners.push({
-      n: myName, animalNames: me.animalNames || {}, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
+      n: myName, animalNames: me.animalNames || {}, animalReady: me.animalReady || {}, animalBorn: me.animalBorn || {}, animalSex: me.animalSex || {}, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
       land: me.land, houseLand: me.houseLand, expandLand: me.expandLand,
       px: self.x / TILE, pz: self.y / TILE, follow: true,
     });
     for (const n in players) {
       const p = players[n];
       owners.push({
-        n: p.n, animalNames: p.animalNames || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
+        n: p.n, animalNames: p.animalNames || {}, animalReady: p.animalReady || {}, animalBorn: p.animalBorn || {}, animalSex: p.animalSex || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
         land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
         px: (p.rx || p.x) / TILE, pz: (p.ry || p.y) / TILE, follow: false,
       });
@@ -1153,6 +1189,8 @@
             // keep inside current lot
             c._ox = aOrigin.x; c._oy = aOrigin.y; c._roam = true;
             c.live = true; c.owner = own.n; c.idx = i; c.name = (own.animalNames || {})[kind + ':' + i] || '';
+            c._last = (own.animalReady || {})[kind + ':' + i] || 0;
+            c.born = (own.animalBorn || {})[kind + ':' + i] || 0; c.sex = (own.animalSex || {})[kind + ':' + i] || '';
           }
         }
       }
@@ -1161,6 +1199,8 @@
         const key = own.n + ':p:' + pid;
         const c = ensureCritter(prev, key, pid, true);
         next.set(key, c);
+        c.live = true; c.owner = own.n; c.pid = pid; c.name = (own.animalNames || {})['pet:' + pid] || '';
+        c.born = (own.animalBorn || {})['pet:' + pid] || 0; c.sex = (own.animalSex || {})['pet:' + pid] || '';
         if (own.petStay === 'follow') {
           c._follow = true; c._fx = own.px; c._fz = own.pz; c._fi = i; c._roam = false;
         } else {
@@ -1340,7 +1380,7 @@
       const cm = (c._follow && Math.hypot((c._fx || c.x) - c.x, (c._fz || c.z) - c.z) > 0.08)
         || (c._roam && Math.hypot(c.tx - c.x, c.tz - c.z) > 0.12);
       if (c._ph == null) c._ph = Math.random() * 6.28;
-      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm, pump: c.kind === 'chicken' && !c.pet ? { speed: 6.5, amp: .09, ph: c._ph } : null });
+      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm, sheared: c.kind === 'sheep' && !c.pet && !harvestReady(c), pump: c.kind === 'chicken' && !c.pet ? { speed: 6.5, amp: .09, ph: c._ph } : null });
     }
     view.flush();
     view.finish();
@@ -1385,13 +1425,16 @@
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
     WD.lands.forEach((o, i) => { const pp = postPos(i), p = toPage(pp.x, 1.15, pp.z); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
     for (const c of critters) {
-      if (!c.live || !c.name) continue;
-      const near = Math.hypot(c.x - self.x / TILE, c.z - self.y / TILE) < 4;
-      if (!(near || c._shownUntil > Date.now() || (hoverTile && hoverTile.critter === c))) continue;
-      const s = toPage(c.x, c.kind === 'cow' ? 1.35 : 1.1, c.z); tag(c.name, s[0], s[1], '#ffe8a3');
+      if (c.live && c.owner === myName && !c.pet && harvestReady(c) && (c.kind === 'cow' || c.kind === 'sheep')) {   // little hint: this one is ready
+        const hp = toPage(c.x, c.kind === 'cow' ? 1.35 : 1.1, c.z);
+        lctx.font = '16px sans-serif'; lctx.textAlign = 'center'; lctx.fillText(c.kind === 'cow' ? '🥛' : '✂️', hp[0], hp[1] - (c.name ? 18 : 4) - Math.abs(Math.sin(t * 3)) * 3); lctx.textAlign = 'left';
+      }
+      if (!c.live || !c.name) continue;   // named animals and pets always show their name
+      const s = toPage(c.x, c.kind === 'cow' ? 1.35 : c.pet ? .95 : 1.1, c.z);
+      if (s[0] > -60 && s[0] < vw + 60 && s[1] > -40 && s[1] < vh + 40) tag(c.name, s[0], s[1], '#ffe8a3');
     }
-    for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
-    { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
+    for (const p of list) { const s = toPage(p.rx / TILE, HEAD_Y(1.05) + tagLift(p._fx, p._fxt), p.ry / TILE); tag(p.n, s[0], s[1]); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
+    { const s = toPage(self.x / TILE, HEAD_Y(1.12) + tagLift(self.emote, myFxT), self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
     let hint = isPhoneUI()
       ? 'Stick to move · tap 🚶/🏃 to toggle · swipe right to look'
@@ -1401,7 +1444,7 @@
       if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name;
       else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
       else if (hoverTile.casino) hint = 'Click: ' + hoverTile.casino.name + ' (min bet ' + money(MIN_BET) + ')';
-      else if (hoverTile.critter) hint = hoverTile.critter.owner === myName ? 'Click: name your ' + hoverTile.critter.kind : 'Click: see this ' + hoverTile.critter.kind + "'s name";
+      else if (hoverTile.critter) hint = hoverTile.critter.owner === myName ? 'Click: name' + (hoverTile.critter.kind === 'cow' ? ' / milk' : hoverTile.critter.kind === 'sheep' ? ' / shear' : '') + ' your ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) : 'Click: see this ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) + "'s name";
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
       else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';
