@@ -67,6 +67,7 @@ body.phone #chat,body.touchable #chat{bottom:168px;width:min(280px,62vw)}
 body.phone #chatlog,body.touchable #chatlog{max-height:72px}
 body.phone #hint,body.touchable #hint{bottom:auto;top:58px;max-width:78vw;font-size:12px}
 body.phone #hud .row .btn,body.touchable #hud .row .btn{padding:8px 10px}
+@keyframes mailpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 </style>
 </head>
 <body>
@@ -78,6 +79,7 @@ body.phone #hud .row .btn,body.touchable #hud .row .btn{padding:8px 10px}
     <button class="btn" id="b-rl" title="Rotate left (Q)">⟲</button>
     <button class="btn" id="b-rr" title="Rotate right (E)">⟳</button>
     <button class="btn" id="b-emote" title="Emotes (G)">😀 Emote</button>
+    <button class="btn" id="b-mail" title="Mail" style="position:relative">📬 Mail<span id="mail-badge" hidden style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e03131;color:#fff;font:700 11px/18px sans-serif;text-align:center;box-shadow:0 0 0 2px #fff"></span></button>
     <button class="btn" id="b-bag">🎒 Bag</button>
     <button class="btn" id="b-ward">👕 Wardrobe</button>
     <button class="btn" id="b-home">🏠 Home</button>

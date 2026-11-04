@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sunny Lots · Admin</title>
+<style>
+:root{--bg:#f4efe4;--card:#fffdf7;--ink:#2b2418;--mut:#8a7d62;--line:#e4dac3;--acc:#2f9e44;--red:#d64545;--gold:#b8860b}
+@media (prefers-color-scheme:dark){:root{--bg:#171410;--card:#221e17;--ink:#f2eadb;--mut:#a69a80;--line:#3a3326;--acc:#51cf66;--red:#ff6b6b;--gold:#f2b632}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 14px}h2{font-size:16px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+input,textarea,select,button{font:inherit;color:inherit}
+input,textarea,select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+textarea{min-height:80px;resize:vertical}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.5}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:var(--bg);border-radius:10px;padding:10px}.stat b{display:block;font-size:20px}.stat span{color:var(--mut);font-size:12px}
+table{width:100%;border-collapse:collapse}th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{font-size:12px;color:var(--mut);cursor:pointer;user-select:none}
+tr.u:hover{background:var(--bg);cursor:pointer}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-right:6px}.dot.on{background:var(--acc)}
+.scroll{overflow-x:auto}.mut{color:var(--mut)}.pos{color:var(--acc)}.neg{color:var(--red)}
+.bd{display:none;background:var(--bg)}.bd td{text-align:left;white-space:normal;color:var(--mut);font-size:13px}
+.msg{margin-top:8px;font-weight:600}
+#login{max-width:360px;margin:12vh auto}
+</style></head><body><div class="wrap">
+<div id="login" class="card"><h1>🌻 Sunny Lots Admin</h1>
+<input id="pw" type="password" placeholder="Admin password" autocomplete="current-password">
+<div style="margin-top:10px"><button id="go">Sign in</button></div><div class="msg neg" id="lmsg"></div></div>
+<div id="app" hidden>
+<div class="row" style="align-items:center"><h1 style="flex:3">🌻 Sunny Lots Admin</h1><div style="flex:1;text-align:right"><button class="ghost" id="refresh">Refresh</button> <button class="ghost" id="out">Sign out</button></div></div>
+<div class="card"><div class="stats" id="stats"></div></div>
+<div class="card"><h2>Players</h2><input id="q" placeholder="Search a player…" style="margin-bottom:10px">
+<div class="scroll"><table id="tbl"><thead><tr><th data-k="name">Player</th><th data-k="cash">Cash (bank)</th><th data-k="networth">Net worth</th><th data-k="casinoNet">Casino P/L</th><th data-k="unread">Unread mail</th><th></th></tr></thead><tbody></tbody></table></div>
+<div class="mut" style="margin-top:8px;font-size:12px">Net worth = cash + crops + products + seeds + furniture + clothes + animals/pets + land, valued at shop prices. Click a row for the breakdown.</div></div>
+<div class="card"><h2>📬 Send mail / event reward</h2>
+<div class="row"><div><label class="mut">To</label><select id="to"><option value="all">Everyone</option></select></div>
+<div><label class="mut">Money attached ($, optional)</label><input id="money" type="number" min="0" step="1" value="0"></div></div>
+<div style="margin:10px 0"><label class="mut">Subject</label><input id="subj" maxlength="80" placeholder="e.g. 🎉 Harvest Festival reward"></div>
+<div><label class="mut">Message</label><textarea id="body" maxlength="1000" placeholder="Write the letter…"></textarea></div>
+<div style="margin-top:10px"><button id="send">Send mail</button></div><div class="msg" id="smsg"></div></div>
+<div class="card"><h2>Recently sent</h2><div class="scroll"><table id="sent"><thead><tr><th>When</th><th>To</th><th>Subject</th><th>Money</th></tr></thead><tbody></tbody></table></div></div>
+</div></div>
+<script>
+const $=s=>document.querySelector(s),fmt=n=>'$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
+let tok=null;try{tok=sessionStorage.getItem('sl_admin')}catch{}
+let users=[],sort={k:'networth',d:-1};
+const api=async(p,o={})=>{const r=await fetch(p,{...o,headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok}});const j=await r.json().catch(()=>({}));if(r.status===401){logout();throw new Error('Signed out')}if(!r.ok)throw new Error(j.error||'Error');return j};
+function logout(){tok=null;try{sessionStorage.removeItem('sl_admin')}catch{};$('#app').hidden=true;$('#login').hidden=false}
+$('#go').onclick=async()=>{try{const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#pw').value})});const j=await r.json();if(!r.ok)throw new Error(j.error);tok=j.token;try{sessionStorage.setItem('sl_admin',tok)}catch{};start()}catch(e){$('#lmsg').textContent=e.message}};
+$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#go').click()};
+$('#out').onclick=logout;$('#refresh').onclick=load;$('#q').oninput=draw;
+document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sort=sort.k===k?{k,d:-sort.d}:{k,d:k==='name'?1:-1};draw()});
+async function load(){const j=await api('/api/admin/users');users=j.users;
+ $('#stats').innerHTML=[['Players',j.totals.users],['Online now',j.totals.online],['Total cash',fmt(j.totals.cash)],['Total net worth',fmt(j.totals.networth)]].map(([a,b])=>`<div class="stat"><b>${b}</b><span>${a}</span></div>`).join('');
+ const cur=$('#to').value;$('#to').innerHTML='<option value="all">Everyone ('+users.length+')</option>'+users.map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');$('#to').value=[...$('#to').options].some(o=>o.value===cur)?cur:'all';
+ $('#sent tbody').innerHTML=(j.sent||[]).map(s=>`<tr><td class="mut">${new Date(s.ts).toLocaleString()}</td><td style="text-align:left">${esc(s.to)} <span class="mut">(${s.count})</span></td><td style="text-align:left">${esc(s.subject)}</td><td>${s.money?fmt(s.money):'—'}</td></tr>`).join('')||'<tr><td colspan=4 class="mut">Nothing sent yet.</td></tr>';
+ draw()}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function draw(){const q=$('#q').value.trim().toLowerCase();const rows=users.filter(u=>u.name.toLowerCase().includes(q)).sort((a,b)=>(a[sort.k]>b[sort.k]?1:a[sort.k]<b[sort.k]?-1:0)*sort.d);
+ $('#tbl tbody').innerHTML=rows.map((u,i)=>{const b=u.breakdown;return `<tr class="u" data-i="${i}"><td><span class="dot ${u.online?'on':''}"></span>${esc(u.name)}</td><td>${fmt(u.cash)}</td><td><b>${fmt(u.networth)}</b></td><td class="${u.casinoNet>0?'pos':u.casinoNet<0?'neg':'mut'}">${u.casinoNet?fmt(u.casinoNet):'—'}</td><td>${u.unread||'—'}</td><td><button class="ghost" data-mail="${esc(u.name)}">✉ Mail</button></td></tr><tr class="bd" id="bd${i}"><td colspan="6">Crops ${fmt(b.crops)} · Products ${fmt(b.products)} · Seeds ${fmt(b.seeds)} · Furniture ${fmt(b.furniture)} · Clothes ${fmt(b.clothes)} · Animals/pets ${fmt(b.animals)} · Land ${fmt(b.land)} · Joined ${u.created?new Date(u.created).toLocaleDateString():'?'}</td></tr>`}).join('')||'<tr><td colspan=6 class="mut">No players.</td></tr>';
+ document.querySelectorAll('tr.u').forEach(tr=>tr.onclick=e=>{if(e.target.dataset.mail){$('#to').value=e.target.dataset.mail;$('#subj').focus();window.scrollTo({top:$('#subj').getBoundingClientRect().top+scrollY-120,behavior:'smooth'});return}const r=$('#bd'+tr.dataset.i);r.style.display=r.style.display==='table-row'?'none':'table-row'})}
+$('#send').onclick=async()=>{const m=$('#smsg');m.className='msg';m.textContent='';const to=$('#to').value,money=Number($('#money').value||0);
+ if(!$('#subj').value.trim()){m.className='msg neg';m.textContent='Add a subject.';return}
+ if(to==='all'&&money>0&&!confirm('Send '+fmt(money)+' to EVERY player ('+users.length+')? Total '+fmt(money*users.length)))return;
+ $('#send').disabled=true;try{const j=await api('/api/admin/mail',{method:'POST',body:JSON.stringify({to,subject:$('#subj').value,body:$('#body').value,money})});m.className='msg pos';m.textContent='Sent to '+j.sent+' player(s).';$('#subj').value='';$('#body').value='';$('#money').value=0;load()}catch(e){m.className='msg neg';m.textContent=e.message}$('#send').disabled=false};
+function start(){$('#login').hidden=true;$('#app').hidden=false;load().catch(()=>{})}
+if(tok)start();
+</script></body></html>

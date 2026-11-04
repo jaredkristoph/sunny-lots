@@ -59,3 +59,8 @@ and the top 10 players by net winnings. Emotes: **G** or the 😀 button, or `/d
 
 ## Accounts
 Pick a username, the server generates a password and shows it once. There is no password reset.
+
+## Admin & mail
+- Open `/admin` on your site. Set the `ADMIN_PASSWORD` environment variable on your host (Render → Environment). If it is not set, a temporary random password is printed in the server log on every start.
+- The admin page lists every player with cash and estimated net worth (cash + crops, products, seeds, furniture, clothes, animals/pets, land at shop prices), and can send mail to one player or everyone, optionally with money attached (event rewards).
+- Players see a **📬 Mail** button with a red badge for unread letters and claim attached money from the letter.

@@ -88,6 +88,7 @@ function ensureUser(u) {
   if (u.houseLand === undefined) u.houseLand = null;
   if (!u.animalNames) u.animalNames = {}; // 'chicken:0' -> 'Clucky'
   if (!u.animalReady) u.animalReady = {}; // 'cow:0' / 'sheep:2' -> last milked / sheared (ms)
+  if (!Array.isArray(u.mail)) u.mail = [];   // [{id, ts, from, subject, body, money, read, claimed}]
   if (!u.animalSex) u.animalSex = {};     // same keys -> 'm' | 'f' (random, fixed at purchase)
   if (!u.animalBorn) u.animalBorn = {};   // 'chicken:0' / 'pet:pet_dog' -> purchase time = "born" date (ms)
   { // animals/pets owned before birth dates existed get today's date the first time we see them
@@ -190,6 +191,95 @@ app.get('/api/catalog', (req, res) => {
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
   });
 });
+
+// ---------------- admin ----------------
+// Set ADMIN_PASSWORD in the host's environment. If it is missing a random one is generated and printed in the server log at every start.
+const ADMIN_PW = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+if (!process.env.ADMIN_PASSWORD) console.log('[admin] ADMIN_PASSWORD not set — temporary admin password for this run: ' + ADMIN_PW);
+const adminSig = body => crypto.createHmac('sha256', db.secret + '|admin').update(body).digest('base64url');
+const makeAdminToken = () => { const b = Buffer.from('admin|' + (Date.now() + 12 * 36e5)).toString('base64url'); return b + '.' + adminSig(b); };
+function isAdmin(req) {
+  const tok = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  const [b, sig] = tok.split('.');
+  if (!b || !sig) return false;
+  const good = adminSig(b);
+  if (sig.length !== good.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return false;
+  const [who, exp] = Buffer.from(b, 'base64url').toString().split('|');
+  return who === 'admin' && Number(exp) > Date.now();
+}
+const adminOnly = (req, res, next) => isAdmin(req) ? next() : res.status(401).json({ error: 'Admin login required.' });
+const r2 = n => Math.round(n * 100) / 100;
+/** Estimated net worth = cash + everything owned valued at its shop/sell price. */
+function netWorth(u) {
+  ensureUser(u);
+  const b = { cash: r2(u.money || 0), crops: 0, products: 0, seeds: 0, furniture: 0, clothes: 0, animals: 0, land: 0 };
+  for (const [k, n] of Object.entries(u.crops || {})) { const sd = C.SEED_BY[k.replace('_gold', '')]; if (sd) b.crops += n * sd.sell * (k.endsWith('_gold') ? C.GOLD_MULT : 1); }
+  for (const [k, n] of Object.entries(u.products || {})) if (C.PRODUCTS[k]) b.products += n * C.PRODUCTS[k].sell;
+  for (const [k, n] of Object.entries(u.seeds || {})) if (C.SEED_BY[k]) b.seeds += n * (C.SEED_BY[k].cost || 0);
+  for (const [k, n] of Object.entries(u.furniture || {})) if (C.FURN_BY[k]) b.furniture += n * (C.FURN_BY[k].price || 0);
+  for (const id of u.clothes || []) if (C.CLOTH_BY[id]) b.clothes += C.CLOTH_BY[id].price || 0;
+  for (const [k, n] of Object.entries(u.animals || {})) if (C.ANIMALS[k]) b.animals += n * C.ANIMALS[k].buy;
+  for (const pid of u.pets || []) if (C.PET_BY[pid]) b.animals += C.PET_BY[pid].price;
+  for (const li of [u.land, u.expandLand, u.houseLand]) {
+    if (li == null || !db.lands[li]) continue;
+    const L = db.lands[li];
+    for (const t of Object.values(L.tiles || {})) if (t.type === 'furn' && C.FURN_BY[t.id]) b.furniture += C.FURN_BY[t.id].price || 0;
+    for (let i = 0, n = Object.keys(L.extra || {}).length; i < n; i++) b.land += C.squarePrice(i);
+  }
+  if (u.expandLand != null) b.land += C.EXPAND_COST;
+  if (u.houseLand != null) b.land += C.HOUSE_COST;
+  for (const k of Object.keys(b)) b[k] = r2(b[k]);
+  b.total = r2(Object.values(b).reduce((a, v) => a + v, 0));
+  return b;
+}
+function giveMail(u, { subject, body, money, from }) {
+  ensureUser(u);
+  u.mail.unshift({ id: crypto.randomBytes(6).toString('hex'), ts: Date.now(), from: from || 'Sunny Lots', subject, body, money: money || 0, read: false, claimed: false });
+  while (u.mail.length > 100) {   // keep the box small: drop the oldest finished letter first
+    let i = -1; for (let k = u.mail.length - 1; k >= 0; k--) { const m = u.mail[k]; if (m.read && (m.claimed || !m.money)) { i = k; break; } }
+    u.mail.splice(i >= 0 ? i : u.mail.length - 1, 1);
+  }
+}
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.post('/api/admin/login', (req, res) => {
+  if (limited(req.ip)) return res.status(429).json({ error: 'Too many attempts, wait a minute.' });
+  const pw = String((req.body || {}).password || '');
+  const a = crypto.createHash('sha256').update(pw).digest(), b = crypto.createHash('sha256').update(ADMIN_PW).digest();
+  if (!crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: 'Wrong admin password.' });
+  res.json({ token: makeAdminToken() });
+});
+app.get('/api/admin/users', adminOnly, (req, res) => {
+  const rows = Object.entries(db.users).map(([key, u]) => {
+    const w = netWorth(u);
+    return { name: u.name, cash: w.cash, networth: w.total, breakdown: w, land: u.land, created: u.created || 0, online: online.has(key), unread: (u.mail || []).filter(m => !m.read).length, casinoNet: ['roulette', 'blackjack'].reduce((s, g) => s + (u.casino && u.casino[g] ? u.casino[g].paid - u.casino[g].wagered : 0), 0) };
+  });
+  rows.sort((a, b) => b.networth - a.networth);
+  res.json({ users: rows, totals: { users: rows.length, online: rows.filter(r => r.online).length, cash: r2(rows.reduce((s, r) => s + r.cash, 0)), networth: r2(rows.reduce((s, r) => s + r.networth, 0)) }, sent: (db.adminMailLog || []).slice(0, 30) });
+});
+app.post('/api/admin/mail', adminOnly, (req, res) => {
+  const b = req.body || {};
+  const subject = String(b.subject || '').trim().slice(0, 80), body = String(b.body || '').trim().slice(0, 1000);
+  const money = Number(b.money || 0);
+  if (!subject) return res.status(400).json({ error: 'Subject is required.' });
+  if (!Number.isFinite(money) || money < 0 || money > 1e9) return res.status(400).json({ error: 'Money must be between 0 and 1,000,000,000.' });
+  let targets;
+  if (b.to === 'all') targets = Object.keys(db.users);
+  else {
+    const names = (Array.isArray(b.to) ? b.to : [b.to]).map(n => String(n || '').trim().toLowerCase()).filter(Boolean);
+    targets = names.filter(k => db.users[k]);
+    if (!targets.length) return res.status(400).json({ error: 'No matching player.' });
+  }
+  const amt = r2(money);
+  for (const k of targets) {
+    giveMail(db.users[k], { subject, body, money: amt });
+    const c = online.get(k); if (c) { sendMe(c); send(c.ws, { t: 'mail_new', subject }); }
+  }
+  if (!db.adminMailLog) db.adminMailLog = [];
+  db.adminMailLog.unshift({ ts: Date.now(), to: b.to === 'all' ? 'Everyone' : targets.map(k => db.users[k].name).join(', ').slice(0, 120), count: targets.length, subject, money: amt });
+  db.adminMailLog.length = Math.min(db.adminMailLog.length, 50);
+  touch();
+  res.json({ ok: true, sent: targets.length });
+});
 app.get('/healthz', (req, res) => res.send('ok'));
 
 app.post('/api/register', (req, res) => {
@@ -234,7 +324,7 @@ const meView = u => ({
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
   animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames, animalReady: u.animalReady, animalBorn: u.animalBorn, animalSex: u.animalSex,
-  stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt,
+  stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt, mail: u.mail,
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
@@ -695,6 +785,24 @@ wss.on('connection', ws => {
         touch(); sendMe(c); playersDirty = true;
         const who = idxs.length === 1 ? (u.animalNames[kind + ':' + idxs[0]] || ('your ' + a.name.toLowerCase())) : n + ' ' + (kind === 'sheep' ? 'sheep' : 'cows');
         ok(kind === 'cow' ? 'Milked ' + who + ': +' + n + ' milk 🥛' : 'Sheared ' + who + ': +' + n + ' wool ✂️');
+        break;
+      }
+      case 'mail_read': {
+        const mm = u.mail.find(x => x.id === m.id); if (mm && !mm.read) { mm.read = true; touch(); sendMe(c); }
+        break;
+      }
+      case 'mail_claim': {
+        const mm = u.mail.find(x => x.id === m.id);
+        if (!mm || !(mm.money > 0) || mm.claimed) return err('Nothing to claim.');
+        mm.claimed = true; mm.read = true; u.money = roundMoney(u.money + mm.money); touch(); sendMe(c);
+        ok('Claimed $' + mm.money + ' from the mail!');
+        break;
+      }
+      case 'mail_delete': {
+        const i = u.mail.findIndex(x => x.id === m.id);
+        if (i < 0) break;
+        if (u.mail[i].money > 0 && !u.mail[i].claimed) return err('Claim the money first.');
+        u.mail.splice(i, 1); touch(); sendMe(c);
         break;
       }
       case 'avatar': {

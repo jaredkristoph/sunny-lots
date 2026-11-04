@@ -116,6 +116,7 @@
   }
   function onMsg(m) {
     switch (m.t) {
+      case 'mail_new': break;
       case 'authfail': logout(); toast('Please log in again.', true); break;
       case 'init':
         me = m.me; myName = me.name; lands = m.lands; SPEED = m.speed; clockOff = m.now - Date.now();
@@ -168,7 +169,43 @@
     log.append(m.sys ? h('div', {}, h('i', {}, m.text)) : h('div', {}, h('b', {}, m.n + ': '), m.text));
     log.scrollTop = 1e9;
   }
-  function updateHud() { $('#hud-name').textContent = '👤 ' + me.name; $('#hud-money').textContent = '💰 ' + money(me.money); }
+  const unreadMail = () => ((me && me.mail) || []).filter(m => !m.read).length;
+  let lastUnread = 0;
+  function updateHud() {
+    $('#hud-name').textContent = '👤 ' + me.name; $('#hud-money').textContent = '💰 ' + money(me.money);
+    const n = unreadMail(), b = $('#mail-badge');
+    if (b) { b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
+    const mb = $('#b-mail'); if (mb) mb.style.animation = n ? 'mailpulse 1.4s ease-in-out infinite' : '';
+    if (n > lastUnread && started) toast('📬 You have new mail!');
+    lastUnread = n;
+  }
+  // ---------- mail (letters from the Sunny Lots team, with optional money to claim) ----------
+  let mailOpenId = null;
+  function openMail() {
+    openModal('📬 Mail', () => {
+      const list = (me.mail || []);
+      const m = mailOpenId && list.find(x => x.id === mailOpenId);
+      if (m) {
+        if (!m.read) send({ t: 'mail_read', id: m.id });
+        return h('div', {},
+          h('button', { class: 'btn sm', onclick: () => { mailOpenId = null; modalRefresh(); } }, '← Back'),
+          h('div', { style: 'font-size:20px;font-weight:900;margin:10px 0 2px' }, m.subject),
+          h('div', { class: 'muted' }, 'From ' + m.from + ' · ' + new Date(m.ts).toLocaleString()),
+          h('div', { style: 'white-space:pre-wrap;margin:12px 0;line-height:1.45' }, m.body || ''),
+          m.money > 0 ? h('div', { class: 'center', style: 'padding:12px;border-radius:12px;background:#fff6d6;border:2px solid #e8c76a;margin-bottom:10px' },
+            h('div', { style: 'font-size:13px;color:#8a6d1a' }, m.claimed ? 'Gift claimed' : 'A gift is attached!'),
+            h('div', { style: 'font-size:26px;font-weight:900' }, '💰 ' + money(m.money)),
+            m.claimed ? null : h('button', { class: 'btn green', style: 'margin-top:6px', onclick: () => send({ t: 'mail_claim', id: m.id }) }, 'Claim ' + money(m.money))) : null,
+          (!m.money || m.claimed) ? h('button', { class: 'btn', onclick: () => { send({ t: 'mail_delete', id: m.id }); mailOpenId = null; } }, '🗑 Delete') : null);
+      }
+      if (!list.length) return h('div', { class: 'center muted', style: 'padding:20px' }, 'Your mailbox is empty. Event rewards and news from the team arrive here.');
+      return h('div', { class: 'list' }, list.map(x => h('div', { class: 'lrow', style: 'cursor:pointer' + (x.read ? '' : ';background:#fff6d6'), onclick: () => { mailOpenId = x.id; modalRefresh(); } },
+        h('div', { style: 'font-size:26px' }, x.money > 0 && !x.claimed ? '🎁' : x.read ? '✉️' : '📩'),
+        h('div', { class: 'grow' }, h('b', {}, x.subject), h('div', { class: 'muted' }, new Date(x.ts).toLocaleDateString() + (x.money > 0 ? (x.claimed ? ' · claimed' : ' · ' + money(x.money) + ' to claim') : ''))),
+        x.read ? null : h('span', { style: 'width:10px;height:10px;border-radius:50%;background:#e03131' }))));
+    });
+    mailOpenId = null;
+  }
 
   // ---------- auth screens ----------
   function authScreen() {
@@ -294,6 +331,7 @@
     });
   }
   $('#b-bag').onclick = () => me && openBag();
+  $('#b-mail').onclick = () => me && openMail();
 
   // ---------- shop ----------
   const shopRect = { x0: WD.shop.x * TILE, y0: WD.shop.y * TILE, x1: (WD.shop.x + WD.shop.w) * TILE, y1: (WD.shop.y + WD.shop.h) * TILE };
@@ -1377,7 +1415,7 @@
           const sd = cat.SEED_BY[tile.seed], p = (now() - tile.at) / growMs(sd), st = Vox.plantStage(p);
           let B = Vox.plantBoxes(sd, st, tile.gold);
           if (st === 3 && tile.gold) { B = B.concat(Vox.sparkles(t)); view.quad(o.x + lx, o.y + ly, o.x + lx + 1, o.y + ly + 1, 0.02, 'rgba(255,214,60,' + (.28 + .12 * Math.sin(t * 4)) + ')'); }
-          view.add(B, wx, 0, wz, 0, .8);
+          view.add(B, wx, 0, wz, 0, 1.05);
         }
       }
     });
