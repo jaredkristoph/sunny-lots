@@ -63,18 +63,29 @@ function matFor(hex, alpha) {
     transparent: a < 0.99,
     opacity: a,
     depthWrite: a > 0.85,
+    polygonOffset: true,
+    polygonOffsetFactor: a < 0.99 ? -1 : 0,
+    polygonOffsetUnits: a < 0.99 ? -1 : 0,
   });
   return m;
 }
 
-/** Tiny procedural chibi pixel sprite (billboard). */
-function makeCharSprite(avatar, cat) {
+/** Walk cycle frame: 0 idle, 1 left stride, 2 right stride. */
+function walkFrame(phase, moving) {
+  if (!moving) return 0;
+  const s = Math.sin(phase);
+  return s > 0.15 ? 1 : s < -0.15 ? 2 : 0;
+}
+
+/** Tiny procedural chibi pixel sprite (billboard). frame = 0/1/2 walk. */
+function makeCharSprite(avatar, cat, frame) {
+  frame = frame | 0;
   const skin = (avatar && avatar.skin) || '#f0c8a0';
   const hair = (avatar && avatar.hairColor) || '#5a3a1a';
   const C = cat && cat.CLOTH;
   const top = C && avatar && C[avatar.top] ? C[avatar.top].c[0] : '#7ec8e8';
   const bot = C && avatar && C[avatar.bottom] ? C[avatar.bottom].c[0] : '#6b8cae';
-  const key = 'ch:' + skin + hair + top + bot + (avatar && avatar.gender);
+  const key = 'ch:' + skin + hair + top + bot + (avatar && avatar.gender) + ':f' + frame;
   if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
 
   const w = 32, h = 40;
@@ -83,25 +94,33 @@ function makeCharSprite(avatar, cat) {
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
   const px = (x, y, ww, hh, col) => { g.fillStyle = col; g.fillRect(x, y, ww, hh); };
+  // stride: opposite legs / arms
+  const L = frame === 1 ? 2 : frame === 2 ? -2 : 0;
+  const R = -L;
+  const aL = frame === 1 ? 1 : frame === 2 ? -1 : 0;
+  const aR = -aL;
   // shoes
-  px(10, 36, 5, 3, '#8a7060'); px(17, 36, 5, 3, '#8a7060');
+  px(10, 36 + (L > 0 ? 0 : L === 0 ? 0 : 1), 5, 3, '#8a7060');
+  px(17, 36 + (R > 0 ? 0 : R === 0 ? 0 : 1), 5, 3, '#8a7060');
   // legs
-  px(11, 28, 4, 8, bot); px(17, 28, 4, 8, bot);
-  // body
-  px(10, 18, 12, 11, top);
-  // arms
-  px(6, 19, 4, 8, skin); px(22, 19, 4, 8, skin);
+  px(11, 28 + (L < 0 ? 1 : 0), 4, 8 + (L > 0 ? -1 : 0), bot);
+  px(17, 28 + (R < 0 ? 1 : 0), 4, 8 + (R > 0 ? -1 : 0), bot);
+  // body (tiny lean when walking)
+  const lean = frame ? (frame === 1 ? -1 : 1) : 0;
+  px(10 + lean, 18, 12, 11, top);
+  // arms swing opposite legs
+  px(6, 19 + aL, 4, 8, skin); px(22, 19 + aR, 4, 8, skin);
   // head
-  px(9, 6, 14, 13, skin);
+  px(9 + lean, 6, 14, 13, skin);
   // eyes
-  px(12, 11, 2, 2, '#5a4a40'); px(18, 11, 2, 2, '#5a4a40');
-  px(12, 11, 1, 1, '#fff'); px(18, 11, 1, 1, '#fff');
+  px(12 + lean, 11, 2, 2, '#5a4a40'); px(18 + lean, 11, 2, 2, '#5a4a40');
+  px(12 + lean, 11, 1, 1, '#fff'); px(18 + lean, 11, 1, 1, '#fff');
   // blush / mouth
-  px(11, 14, 2, 1, '#f0b0b8'); px(19, 14, 2, 1, '#f0b0b8');
-  px(15, 15, 2, 1, '#d09080');
+  px(11 + lean, 14, 2, 1, '#f0b0b8'); px(19 + lean, 14, 2, 1, '#f0b0b8');
+  px(15 + lean, 15, 2, 1, '#d09080');
   // hair
-  px(9, 4, 14, 5, hair); px(8, 7, 3, 8, hair); px(21, 7, 3, 8, hair);
-  if (avatar && avatar.gender === 'female') px(8, 14, 3, 12, hair), px(21, 14, 3, 12, hair);
+  px(9 + lean, 4, 14, 5, hair); px(8 + lean, 7, 3, 8, hair); px(21 + lean, 7, 3, 8, hair);
+  if (avatar && avatar.gender === 'female') px(8 + lean, 14, 3, 12, hair), px(21 + lean, 14, 3, 12, hair);
 
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
@@ -111,31 +130,38 @@ function makeCharSprite(avatar, cat) {
   return t;
 }
 
-function makeCritterSprite(kind, pet) {
-  const key = 'cr:' + kind + ':' + !!pet;
+function makeCritterSprite(kind, pet, frame) {
+  frame = frame | 0;
+  const key = 'cr:' + kind + ':' + !!pet + ':f' + frame;
   if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
   const c = document.createElement('canvas');
   c.width = 24; c.height = 20;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
   const px = (x, y, ww, hh, col) => { g.fillStyle = col; g.fillRect(x, y, ww, hh); };
+  const hop = frame === 1 ? -1 : frame === 2 ? 1 : 0;
   if (kind === 'chicken') {
-    px(8, 10, 10, 7, '#fff8f0'); px(16, 12, 4, 3, '#ffc9a0'); px(11, 6, 6, 5, '#fff8f0');
-    px(12, 4, 3, 2, '#f2a8a8'); px(10, 17, 2, 2, '#ffe9a8'); px(14, 17, 2, 2, '#ffe9a8');
+    px(8, 10 + Math.abs(hop), 10, 7, '#fff8f0'); px(16, 12 + Math.abs(hop), 4, 3, '#ffc9a0'); px(11, 6 + Math.abs(hop), 6, 5, '#fff8f0');
+    px(12, 4 + Math.abs(hop), 3, 2, '#f2a8a8');
+    px(10 + hop, 17, 2, 2, '#ffe9a8'); px(14 - hop, 17, 2, 2, '#ffe9a8');
   } else if (kind === 'cow') {
-    px(4, 8, 14, 8, '#faf8f5'); px(6, 10, 4, 4, '#c8c0b8'); px(2, 6, 6, 6, '#faf8f5');
-    px(3, 8, 2, 2, '#8a7a70'); px(6, 16, 2, 3, '#b0a8a0'); px(14, 16, 2, 3, '#b0a8a0');
+    px(4, 8 + Math.abs(hop), 14, 8, '#faf8f5'); px(6, 10 + Math.abs(hop), 4, 4, '#c8c0b8'); px(2, 6 + Math.abs(hop), 6, 6, '#faf8f5');
+    px(3, 8 + Math.abs(hop), 2, 2, '#8a7a70');
+    px(6 + hop, 16, 2, 3, '#b0a8a0'); px(14 - hop, 16, 2, 3, '#b0a8a0');
   } else if (kind === 'sheep' || (!pet && kind !== 'chicken' && kind !== 'cow')) {
-    px(5, 7, 12, 9, '#fffaf5'); px(3, 6, 5, 5, '#c8c0b8'); px(7, 16, 2, 3, '#b8b0a8'); px(13, 16, 2, 3, '#b8b0a8');
+    px(5, 7 + Math.abs(hop), 12, 9, '#fffaf5'); px(3, 6 + Math.abs(hop), 5, 5, '#c8c0b8');
+    px(7 + hop, 16, 2, 3, '#b8b0a8'); px(13 - hop, 16, 2, 3, '#b8b0a8');
   } else if (kind === 'pet_dog' || kind === 'dog') {
-    px(6, 8, 12, 7, '#e8c9a8'); px(3, 6, 6, 6, '#e8c9a8'); px(16, 9, 5, 2, '#e8c9a8');
-    px(4, 8, 2, 2, '#8a7a70'); px(8, 15, 2, 3, '#d4b090'); px(13, 15, 2, 3, '#d4b090');
+    px(6, 8 + Math.abs(hop), 12, 7, '#e8c9a8'); px(3, 6 + Math.abs(hop), 6, 6, '#e8c9a8'); px(16, 9 + Math.abs(hop), 5, 2, '#e8c9a8');
+    px(4, 8 + Math.abs(hop), 2, 2, '#8a7a70');
+    px(8 + hop, 15, 2, 3, '#d4b090'); px(13 - hop, 15, 2, 3, '#d4b090');
   } else if (kind === 'pet_cat' || kind === 'cat') {
-    px(7, 9, 10, 6, '#c8c4d0'); px(4, 6, 6, 6, '#c8c4d0'); px(4, 3, 2, 3, '#c8c4d0'); px(8, 3, 2, 3, '#c8c4d0');
-    px(8, 15, 2, 3, '#b0a8b8'); px(13, 15, 2, 3, '#b0a8b8');
+    px(7, 9 + Math.abs(hop), 10, 6, '#c8c4d0'); px(4, 6 + Math.abs(hop), 6, 6, '#c8c4d0');
+    px(4, 3 + Math.abs(hop), 2, 3, '#c8c4d0'); px(8, 3 + Math.abs(hop), 2, 3, '#c8c4d0');
+    px(8 + hop, 15, 2, 3, '#b0a8b8'); px(13 - hop, 15, 2, 3, '#b0a8b8');
   } else {
-    px(7, 8, 10, 7, '#fffaf5'); px(4, 6, 6, 6, '#fffaf5'); px(4, 8, 3, 2, '#ffd0d8');
-    px(8, 15, 2, 3, '#ffd0d8'); px(13, 15, 2, 3, '#ffd0d8');
+    px(7, 8 + Math.abs(hop), 10, 7, '#fffaf5'); px(4, 6 + Math.abs(hop), 6, 6, '#fffaf5'); px(4, 8 + Math.abs(hop), 3, 2, '#ffd0d8');
+    px(8 + hop, 15, 2, 3, '#ffd0d8'); px(13 - hop, 15, 2, 3, '#ffd0d8');
   }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
@@ -338,8 +364,10 @@ class View {
     }
     const mesh = this._takeQuad();
     mesh.material = this._mat(hex, alpha);
-    mesh.position.set((x0 + x1) / 2, (y || 0) + 0.002, (z0 + z1) / 2);
+    // y stacks layers so ground / overlays / hover never Z-fight
+    mesh.position.set((x0 + x1) / 2, (y == null ? 0 : y), (z0 + z1) / 2);
     mesh.scale.set(w, d, 1);
+    mesh.renderOrder = alpha < 0.99 ? 2 : 0;
     mesh.visible = true;
     this.dynamic.add(mesh);
   }
@@ -376,26 +404,33 @@ class View {
     }
   }
 
-  /** Camera-facing pixel character / critter. */
+  /** Camera-facing pixel character / critter. opts.walk / opts.moving drive stride + bob. */
   addBillboard(texOrKind, x, y, z, opts) {
     opts = opts || {};
+    const moving = !!opts.moving;
+    const phase = opts.walk || 0;
+    const frame = walkFrame(phase, moving);
     let tex = texOrKind;
-    if (typeof texOrKind === 'string') tex = makeCritterSprite(texOrKind, !!opts.pet);
+    if (typeof texOrKind === 'string') tex = makeCritterSprite(texOrKind, !!opts.pet, frame);
     const spr = this._takeSprite();
     spr.material.map = tex;
     spr.material.needsUpdate = true;
     const sc = opts.scale || 1.35;
     const iw = (tex.image && tex.image.width) || 32;
     const ih = (tex.image && tex.image.height) || 40;
-    spr.scale.set(sc * (iw / 32), sc * (ih / 32), 1);
-    spr.position.set(x, (y || 0) + 0.02, z);
+    const bob = moving ? Math.abs(Math.sin(phase)) * 0.09 : 0;
+    const squash = moving ? 1 - Math.abs(Math.sin(phase)) * 0.05 : 1;
+    const stretch = moving ? 1 + Math.abs(Math.sin(phase)) * 0.03 : 1;
+    spr.scale.set(sc * (iw / 32) * squash, sc * (ih / 32) * stretch, 1);
+    spr.position.set(x, (y || 0) + 0.02 + bob, z);
     spr.visible = true;
     this.dynamic.add(spr);
   }
 
-  addCharacter(avatar, cat, x, z, scale) {
-    const tex = makeCharSprite(avatar, cat);
-    this.addBillboard(tex, x, 0, z, { scale: scale || 1.6 });
+  addCharacter(avatar, cat, x, z, scale, walk, moving) {
+    const frame = walkFrame(walk || 0, !!moving);
+    const tex = makeCharSprite(avatar, cat, frame);
+    this.addBillboard(tex, x, 0, z, { scale: scale || 1.6, walk: walk || 0, moving: !!moving });
   }
 
   flush() {

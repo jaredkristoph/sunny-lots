@@ -1009,7 +1009,8 @@
       const sp = (sprint ? 280 : 190) * dt * mag;
       let nx = Math.max(10, Math.min(WD.width * TILE - 10, self.x + wx * sp)), ny = Math.max(10, Math.min(WD.height * TILE - 10, self.y + wz * sp));
       if (!blocked(nx, self.y)) self.x = nx; if (!blocked(self.x, ny)) self.y = ny;
-      self.psi += angDiff(self.psi, Math.atan2(wx, wz)) * Math.min(1, dt * 14); self.walk += dt * 11;
+      self.psi += angDiff(self.psi, Math.atan2(wx, wz)) * Math.min(1, dt * 14);
+      self.walk += dt * (sprint ? 16 : 11);
     }
     if (performance.now() - lastSent > 100 && (Math.abs(self.x - sentX) > .5 || Math.abs(self.y - sentY) > .5)) { send({ t: 'move', x: self.x, y: self.y }); sentX = self.x; sentY = self.y; lastSent = performance.now(); }
 
@@ -1032,39 +1033,39 @@
       else if (li >= 0) col = chk ? '#d4f2b8' : '#c6eaa8';
       else if (isMargin(tx, tz)) col = chk ? '#b5e0a8' : '#a8d69c';
       else col = chk ? '#e8dcc8' : '#d9cdb8'; // soft cobble lane
-      view.quad(tx, tz, tx + 1, tz + 1, 0, col);
+      view.quad(tx, tz, tx + 1, tz + 1, 0.0, col);
     }
-    // land floors: soil under plants, house planks, faint grid on my land
+    // land floors: soil under plants, house planks, faint grid on my land (raised to avoid Z-fight)
     const fpsi = fpsiFor(view.yaw);
     lands.forEach((L, i) => {
       const o = WD.lands[i], meta = WD.lands[i] || {}, mine = L.owner && L.owner === myName;
       if (meta.house) {
         for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) {
-          view.quad(o.x + lx + .06, o.y + ly + .06, o.x + lx + .94, o.y + ly + .94, 0, (lx + ly) & 1 ? 'rgba(140,100,50,.22)' : 'rgba(110,75,35,.18)');
+          view.quad(o.x + lx + .06, o.y + ly + .06, o.x + lx + .94, o.y + ly + .94, 0.012, (lx + ly) & 1 ? 'rgba(140,100,50,.22)' : 'rgba(110,75,35,.18)');
         }
       } else if (mine) {
-        for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.16)');
+        for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0.012, 'rgba(70,120,40,.16)');
         for (const k of Object.keys(L.extra || {})) {
           const [lx, ly] = k.split(',').map(Number);
-          view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0, 'rgba(70,120,40,.22)');
+          view.quad(o.x + lx + .04, o.y + ly + .04, o.x + lx + .96, o.y + ly + .96, 0.014, 'rgba(70,120,40,.22)');
         }
       }
       for (const k in L.tiles) {
         const tile = L.tiles[k]; if (tile.type !== 'plant') continue;
         const [lx, ly] = k.split(',').map(Number);
-        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0, '#d2b48c');
-        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0, '#c4a47a');
+        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0.016, '#d2b48c');
+        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0.018, '#c4a47a');
       }
     });
     const [mbx, mby] = toBuf(mouse.x, mouse.y); const hp = pickAt(mbx, mby);
     hoverTile = hp && !hp.shop ? hp : null;
     if (hoverTile && !modalOpen()) {
-      if (hoverTile.buySquare) view.quad(hoverTile.wx, hoverTile.wy, hoverTile.wx + 1, hoverTile.wy + 1, 0, 'rgba(120,200,255,.45)');
-      else if (hoverTile.park && WD.park) view.quad(WD.park.x, WD.park.y, WD.park.x + WD.park.w, WD.park.y + WD.park.h, 0, 'rgba(100,220,140,.22)');
+      if (hoverTile.buySquare) view.quad(hoverTile.wx, hoverTile.wy, hoverTile.wx + 1, hoverTile.wy + 1, 0.03, 'rgba(120,200,255,.45)');
+      else if (hoverTile.park && WD.park) view.quad(WD.park.x, WD.park.y, WD.park.x + WD.park.w, WD.park.y + WD.park.h, 0.03, 'rgba(100,220,140,.22)');
       else if (hoverTile.i != null && WD.lands[hoverTile.i] && lands[hoverTile.i]) {
         const o = WD.lands[hoverTile.i], L = lands[hoverTile.i];
-        if (L.owner === myName && hoverTile.lx != null) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0, 'rgba(255,255,255,.4)');
-        else view.quad(o.x, o.y, o.x + LS, o.y + LS, 0, !L.owner ? 'rgba(255,230,120,.3)' : 'rgba(210,70,50,.14)');
+        if (L.owner === myName && hoverTile.lx != null) view.quad(o.x + hoverTile.lx, o.y + hoverTile.ly, o.x + hoverTile.lx + 1, o.y + hoverTile.ly + 1, 0.03, 'rgba(255,255,255,.4)');
+        else view.quad(o.x, o.y, o.x + LS, o.y + LS, 0.03, !L.owner ? 'rgba(255,230,120,.3)' : 'rgba(210,70,50,.14)');
       }
     }
 
@@ -1083,7 +1084,7 @@
         else {
           const sd = cat.SEED_BY[tile.seed], p = (now() - tile.at) / growMs(sd), st = Vox.plantStage(p);
           let B = Vox.plantBoxes(sd, st, tile.gold);
-          if (st === 3 && tile.gold) { B = B.concat(Vox.sparkles(t)); view.quad(o.x + lx, o.y + ly, o.x + lx + 1, o.y + ly + 1, 0, 'rgba(255,214,60,' + (.28 + .12 * Math.sin(t * 4)) + ')'); }
+          if (st === 3 && tile.gold) { B = B.concat(Vox.sparkles(t)); view.quad(o.x + lx, o.y + ly, o.x + lx + 1, o.y + ly + 1, 0.02, 'rgba(255,214,60,' + (.28 + .12 * Math.sin(t * 4)) + ')'); }
           view.add(B, wx, 0, wz, 0, .8);
         }
       }
@@ -1093,13 +1094,15 @@
       const p = players[n], ddx = p.x - p.rx, ddy = p.y - p.ry; p.rx += ddx * .25; p.ry += ddy * .25;
       const mv = Math.abs(ddx) + Math.abs(ddy) > 1.5;
       if (mv) { p.walk += dt * 11; p.psi += angDiff(p.psi, Math.atan2(ddx, ddy)) * Math.min(1, dt * 14); }
-      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.55); list.push(p);
+      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.55, p.walk, mv); list.push(p);
     }
-    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.65);
+    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.65, self.walk, moving);
     updateCritters(dt);
     for (const c of critters) {
       const sc = c.pet ? 1.15 : (c.kind === 'cow' ? 1.55 : 1.25);
-      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc });
+      const cm = (c._follow && Math.hypot((c._fx || c.x) - c.x, (c._fz || c.z) - c.z) > 0.08)
+        || (c._roam && Math.hypot(c.tx - c.x, c.tz - c.z) > 0.12);
+      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm });
     }
     view.flush();
     view.finish();
