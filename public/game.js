@@ -756,7 +756,7 @@
     if (k.startsWith('arrow')) e.preventDefault();
   });
   addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
-  addEventListener('blur', () => { keys.clear(); stick.x = stick.y = 0; stick.active = false; stick.run = false; placeKnob(0, 0); });
+  addEventListener('blur', () => { keys.clear(); stick.x = stick.y = 0; stick.active = false; placeKnob(0, 0); });
   $('#b-rl').onclick = () => rotate(-1);
   $('#b-rr').onclick = () => rotate(1);
   let drag = null, touchLookId = null, touchLookX = 0, suppressClick = false;
@@ -821,12 +821,15 @@
     addEventListener('mouseup', () => { if (mouseStick) { mouseStick = false; clearStick(); } });
   }
   if (runEl) {
-    const setRun = on => { stick.run = !!on; runEl.classList.toggle('green', stick.run); };
-    runEl.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); setRun(true); }, { passive: false });
-    runEl.addEventListener('touchend', e => { e.preventDefault(); setRun(false); });
-    runEl.addEventListener('touchcancel', () => setRun(false));
-    runEl.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); setRun(true); });
-    addEventListener('mouseup', () => { if (stick.run) setRun(false); });
+    const syncRunBtn = () => {
+      runEl.classList.toggle('green', stick.run);
+      runEl.textContent = stick.run ? '🏃' : '🚶';
+      runEl.title = stick.run ? 'Running — tap for walk' : 'Walking — tap for run';
+    };
+    const toggleRun = () => { stick.run = !stick.run; syncRunBtn(); };
+    syncRunBtn();
+    runEl.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleRun(); });
+    runEl.addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
     runEl.addEventListener('contextmenu', e => e.preventDefault());
   }
   cv.addEventListener('touchstart', e => {
@@ -1132,7 +1135,7 @@
     { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
     let hint = isPhoneUI()
-      ? 'Stick to walk · 🏃 run · swipe right to look · tap to interact'
+      ? 'Stick to move · tap 🚶/🏃 to toggle · swipe right to look'
       : 'WASD · stalls · park · pets follow / animals roam · Enter chat';
     if (me.land == null) hint = 'Claim a Farm Lot (1–8) · house lots south · expansion east';
     else if (hoverTile) {
