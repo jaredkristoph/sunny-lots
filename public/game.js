@@ -238,7 +238,7 @@
       h('div', { class: 'muted' }, 'Hair color'),
       h('div', { class: 'row', style: 'justify-content:center' }, cat.HAIRS.map(c => h('div', { class: 'sw' + (a.hairColor === c ? ' on' : ''), style: 'background:' + c, onclick: () => send({ t: 'avatar', hairColor: c }) }))));
   }
-  const owns = it => it.price === 0 || me.clothes.includes(it.id);
+  const owns = it => (it.price === 0 && it.buyable !== false) || me.clothes.includes(it.id);   // rare drops (price 0, not buyable) only count once found
   function openCreator() {
     openModal('Create your character', () => h('div', { class: 'center' }, look(),
       h('div', { class: 'muted' }, 'You start with plain free clothes. Earn money and buy more at the shop! You can change all of this any time.'),
@@ -735,6 +735,9 @@
   let critterIv = null;
   const harvestReady = c => { const a = cat.ANIMALS[c.kind]; if (!a || c.pet) return true; const cd = (c.kind === 'cow' ? a.milkCd : a.woolCd) * 1000; return !cd || now() >= (c._last || 0) + cd; };
   // Name tag sits just above the sprite's head: sprite is 40px tall (head top ~4px down) × scale / 32px per unit.
+  // Sprites are camera-facing, so their on-screen height is NOT foreshortened by the camera pitch (1.05 rad) the way world-Y is.
+  const PITCH_K = 1 / Math.cos(1.05);
+  const CHAR_HEAD_Y = sc => sc * (40 / 32) * PITCH_K + .08;
   const HEAD_Y = sc => sc * (36 / 32) + .1;
   const tagLift = (emote, et) => emote === 'jump' ? .45 * Math.abs(Math.sin((et || 0) * 7)) : emote === 'dance' ? .16 * Math.abs(Math.sin((et || 0) * 9)) : emote === 'sit' ? -.3 : emote === 'spin' ? .1 * Math.abs(Math.sin((et || 0) * 5)) : 0;
   const CRITTER_ICON = { chicken: '🐔', cow: '🐄', sheep: '🐑' };
@@ -1433,8 +1436,8 @@
       const s = toPage(c.x, c.kind === 'cow' ? 1.35 : c.pet ? .95 : 1.1, c.z);
       if (s[0] > -60 && s[0] < vw + 60 && s[1] > -40 && s[1] < vh + 40) tag(c.name, s[0], s[1], '#ffe8a3');
     }
-    for (const p of list) { const s = toPage(p.rx / TILE, HEAD_Y(1.05) + tagLift(p._fx, p._fxt), p.ry / TILE); tag(p.n, s[0], s[1]); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
-    { const s = toPage(self.x / TILE, HEAD_Y(1.12) + tagLift(self.emote, myFxT), self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
+    for (const p of list) { const s = toPage(p.rx / TILE, CHAR_HEAD_Y(1.05) + tagLift(p._fx, p._fxt) * PITCH_K, p.ry / TILE); tag(p.n, s[0], s[1] - 3); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 22); }
+    { const s = toPage(self.x / TILE, CHAR_HEAD_Y(1.12) + tagLift(self.emote, myFxT) * PITCH_K, self.y / TILE); tag(me.name, s[0], s[1] - 3, '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 22); }
 
     let hint = isPhoneUI()
       ? 'Stick to move · tap 🚶/🏃 to toggle · swipe right to look'

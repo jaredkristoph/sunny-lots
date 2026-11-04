@@ -58,8 +58,10 @@ function pixelTex(hex, size = 8) {
 
 function matFor(hex, alpha) {
   const a = alpha == null ? 1 : alpha;
+  const tex = pixelTex(hex || '#ccc');
   const m = new THREE.MeshLambertMaterial({
-    map: pixelTex(hex || '#ccc'),
+    map: tex,
+    emissive: 0x5a5a5a, emissiveMap: tex,   // lifts shaded sides / dark colours so furniture doesn't look muddy
     transparent: a < 0.99,
     opacity: a,
     depthWrite: a > 0.85,
