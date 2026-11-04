@@ -347,6 +347,7 @@
 
   // land lookup (tile coordinates) — includes bought extra squares
   let landGrid = Array.from({ length: WD.height }, () => new Array(WD.width).fill(-1));
+  let fencesReady = false;   // set once the static scenery list exists
   function rebuildLandGrid() {
     landGrid = Array.from({ length: WD.height }, () => new Array(WD.width).fill(-1));
     WD.lands.forEach((o, i) => {
@@ -361,6 +362,7 @@
         if (wy >= 0 && wy < WD.height && wx >= 0 && wx < WD.width) landGrid[wy][wx] = i;
       }
     });
+    if (fencesReady) rebuildFences();
   }
   rebuildLandGrid();
   function landAt(tx, tz) {
@@ -398,19 +400,42 @@
       const B = Vox.mk(); B.add(0, 0, 0, .34, .22, .34, '#4fae44').add(.08, .1, .05, .16, .2, .16, '#e84393'); piece(B, tx + .5, ty + .5, .6);
     }
   }
-  WD.lands.forEach(o => {
-    if (o.npc) return; // model home uses cottage shell + garden, not farm fencing
-    for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) {
-      const edges = []; if (ly === 0) edges.push('n'); if (ly === LS - 1) edges.push('s'); if (lx === 0) edges.push('w'); if (lx === LS - 1) edges.push('e');
-      if (!edges.length) continue;
-      const B = Vox.mk();
-      edges.forEach(e => {
-        if (e === 'n' || e === 's') { const z = e === 'n' ? -.5 : .5; B.add(0, .14, z, 1, .05, .05, '#a0703c').add(0, .28, z, 1, .05, .05, '#a0703c').add(-.5, 0, z, .09, .4, .09, '#7a5230'); if (lx === LS - 1) B.add(.5, 0, z, .09, .4, .09, '#7a5230'); }
-        else { const x = e === 'w' ? -.5 : .5; B.add(x, .14, 0, .05, .05, 1, '#a0703c').add(x, .28, 0, .05, .05, 1, '#a0703c').add(x, 0, -.5, .09, .4, .09, '#7a5230'); if (ly === LS - 1) B.add(x, 0, .5, .09, .4, .09, '#7a5230'); }
-      });
-      piece(B, o.x + lx + .5, o.y + ly + .5, .8);
-    }
-  });
+  // Fences + land posts follow each lot's real footprint (base 8x8 plus bought squares).
+  // Rebuilt whenever the land grid changes; the static GPU group is re-baked afterwards.
+  const postTop = {};   // land index -> z of the post (just outside the lot's north edge)
+  const postPos = i => { const o = WD.lands[i]; return { x: o.x + 1, z: (postTop[i] != null ? postTop[i] : o.y) - .6 }; };
+  function rebuildFences() {
+    for (let k = statics.length - 1; k >= 0; k--) if (statics[k].dyn) statics.splice(k, 1);
+    const add = (B, x, z, r) => statics.push({ B, x, z, r: r || 1, dyn: true });
+    const gridAt = (x, y) => (y >= 0 && y < WD.height && x >= 0 && x < WD.width) ? landGrid[y][x] : -2;
+    const RAIL = '#a0703c', POST = '#7a5230';
+    WD.lands.forEach((o, i) => {
+      // post sits above the topmost owned tile in its column, so it never lands on a crop
+      let top = o.y; while (gridAt(o.x + 1, top - 1) === i) top--;
+      postTop[i] = top;
+      const pp = postPos(i); add(Vox.landPost(), pp.x, pp.z, 1.0);
+      if (o.npc) return; // model home uses cottage shell + garden, not farm fencing
+      const tiles = [];
+      for (let ly = 0; ly < LS; ly++) for (let lx = 0; lx < LS; lx++) tiles.push([o.x + lx, o.y + ly]);
+      const L = lands[i];
+      if (L && L.extra) for (const k of Object.keys(L.extra)) { const [rx, ry] = k.split(',').map(Number); tiles.push([o.x + rx, o.y + ry]); }
+      const corners = new Set();
+      for (const [tx, ty] of tiles) {
+        if (gridAt(tx, ty) !== i) continue;
+        const B = Vox.mk(); let any = false;
+        if (gridAt(tx, ty - 1) !== i) { B.add(0, .14, -.5, 1, .05, .05, RAIL).add(0, .28, -.5, 1, .05, .05, RAIL); corners.add(tx + ',' + ty).add((tx + 1) + ',' + ty); any = true; }
+        if (gridAt(tx, ty + 1) !== i) { B.add(0, .14, .5, 1, .05, .05, RAIL).add(0, .28, .5, 1, .05, .05, RAIL); corners.add(tx + ',' + (ty + 1)).add((tx + 1) + ',' + (ty + 1)); any = true; }
+        if (gridAt(tx - 1, ty) !== i) { B.add(-.5, .14, 0, .05, .05, 1, RAIL).add(-.5, .28, 0, .05, .05, 1, RAIL); corners.add(tx + ',' + ty).add(tx + ',' + (ty + 1)); any = true; }
+        if (gridAt(tx + 1, ty) !== i) { B.add(.5, .14, 0, .05, .05, 1, RAIL).add(.5, .28, 0, .05, .05, 1, RAIL); corners.add((tx + 1) + ',' + ty).add((tx + 1) + ',' + (ty + 1)); any = true; }
+        if (any) add(B, tx + .5, ty + .5, .8);
+      }
+      for (const c of corners) {
+        const [cx, cz] = c.split(',').map(Number);
+        add(Vox.mk().add(0, 0, 0, .09, .4, .09, POST), cx, cz, .8);
+      }
+    });
+    view._staticsBaked = false;   // re-bake the GPU group with the new fences
+  }
   (function buildShop() {
     const S = WD.shop;
     for (let j = 0; j < S.h; j++) for (let i = 0; i < S.w; i++) {
@@ -428,8 +453,6 @@
     piece(Vox.plantBoxes(cat.SEED_BY.pumpkin, 3, false), S.x - .5, S.y + S.h + .1, .6);
     piece(Vox.plantBoxes(cat.SEED_BY.sunflower, 3, false), S.x + S.w + .5, S.y + S.h + .1, .6);
   })();
-  // land post sits just outside the lot's north fence (never over a crop), beside the name label
-  const postPos = o => ({ x: o.x + 1, z: o.y - .6 });
   (function buildPOIs() {
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
@@ -454,12 +477,9 @@
       const tree = Vox.mk(); tree.add(0, 0, 0, .18, .55, .18, '#7a5230').add(0, .5, 0, .7, .4, .7, '#2f9e44').add(0, .85, 0, .5, .35, .5, '#40c057');
       piece(tree, P.x + 1.2, P.y + 1.5, 1.2); piece(tree, P.x + 8.5, P.y + 5.2, 1.2);
     }
-    WD.lands.forEach((o, i) => {
-      // solid base/porch always; walls+roof drawn each frame (fade when inside)
-      if (o.npc) piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
-      const pp = postPos(o); piece(Vox.landPost(), pp.x, pp.z, 1.0);
-    });
+    WD.lands.forEach(o => { if (o.npc) piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15); }); // solid base/porch always; walls+roof drawn each frame
   })();
+  fencesReady = true; rebuildFences();
   const npcLot = WD.lands.find(o => o.npc) || null;
   const npcShellSolid = Vox.modelHomeShell(1);
   const npcShellGhost = Vox.modelHomeShell(0.2);
@@ -477,8 +497,7 @@
     const g0 = view.pick(bx, by, 0);
     // land posts (outside the north fence of each plot)
     for (let i = 0; i < WD.lands.length; i++) {
-      const o = WD.lands[i];
-      const pp = postPos(o);
+      const pp = postPos(i);
       if (Math.hypot(g0.x - pp.x, g0.z - pp.z) < .7) return { post: i };
     }
     // POIs (stalls / pens / pet shop / bushes / park)
@@ -1111,7 +1130,7 @@
     // labels (crisp text on a full-resolution overlay)
     WD.lands.forEach((o, i) => {
       const L = lands[i]; if (!L) return;
-      const far = toPage(o.x + LS / 2 + 1, 0, o.y - .6);   // pinned next to the post
+      const far = toPage(o.x + LS / 2 + 1, 0, postPos(i).z);   // pinned next to the post
       if (far[0] < -100 || far[0] > vw + 100 || far[1] < -50 || far[1] > vh + 50) return;
       const meta = WD.lands[i] || {};
       const farmIdx = (!meta.expand && !meta.house) ? (i + 1) : null;
@@ -1134,7 +1153,7 @@
     if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
-    WD.lands.forEach((o, i) => { const pp = postPos(o), p = toPage(pp.x, 1.15, pp.z); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
+    WD.lands.forEach((o, i) => { const pp = postPos(i), p = toPage(pp.x, 1.15, pp.z); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
     for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
