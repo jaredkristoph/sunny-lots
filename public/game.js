@@ -42,7 +42,16 @@
   let ws = null, me = null, lands = [], players = {}, myName = '', SPEED = 1, clockOff = 0, loggedOut = false;
   const self = { x: 0, y: 0, psi: 0, walk: 0, say: null };           // x,y in server px (48 per tile)
   const keys = new Set();
+  const stick = { x: 0, y: 0, active: false, run: false };           // phone virtual stick (−1..1)
   let started = false, lastSent = 0, sentX = -1, sentY = -1, hoverTile = null;
+  const isPhoneUI = () => matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 820px)').matches || ('ontouchstart' in window);
+  function syncPhoneUI() {
+    const on = isPhoneUI();
+    document.body.classList.toggle('touchable', on);
+    document.body.classList.toggle('phone', on);
+    const pad = $('#walk-pad');
+    if (pad) pad.hidden = !started || !on;
+  }
   const now = () => Date.now() + clockOff;
   const growMs = sd => sd.hours * 3600000 / SPEED;
 
@@ -105,7 +114,7 @@
         players = {}; m.players.forEach(upsert);
         $('#chatlog').innerHTML = ''; m.chat.forEach(addChat);
         $('#hud').hidden = false; $('#chat').hidden = false; $('#auth-root') && $('#auth-root').remove();
-        closeModal(); updateHud(); started = true;
+        closeModal(); updateHud(); started = true; syncPhoneUI();
         rebuildLandGrid();
         if (!me.charDone) openCreator();
         break;
@@ -189,6 +198,7 @@
     loggedOut = true; token = null; localStorage.removeItem('sl_token'); started = false;
     if (ws) { try { ws.close(); } catch (e) { /* ignore */ } }
     $('#hud').hidden = true; $('#chat').hidden = true; closeModal();
+    stick.x = stick.y = 0; stick.active = stick.run = false; syncPhoneUI();
     if (!$('#auth-root')) authScreen();
   }
   $('#b-out').onclick = logout;
@@ -739,16 +749,108 @@
     if (k.startsWith('arrow')) e.preventDefault();
   });
   addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
-  addEventListener('blur', () => keys.clear());
+  addEventListener('blur', () => { keys.clear(); stick.x = stick.y = 0; stick.active = false; stick.run = false; placeKnob(0, 0); });
   $('#b-rl').onclick = () => rotate(-1);
   $('#b-rr').onclick = () => rotate(1);
-  let drag = null;
+  let drag = null, touchLookId = null, touchLookX = 0, suppressClick = false;
   cv.addEventListener('contextmenu', e => e.preventDefault());
   cv.addEventListener('mousedown', e => { if (e.button === 2 || e.button === 1) { drag = e.clientX; e.preventDefault(); } });
   addEventListener('mouseup', () => { drag = null; });
   addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; if (drag !== null) { const d = (e.clientX - drag) * .012; drag = e.clientX; yawT += d; view.yaw += d; } });
   cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(18, Math.min(48, zoom * (e.deltaY < 0 ? 1.1 : .91))); }, { passive: false });
-  cv.addEventListener('click', e => clickScreen(e.clientX, e.clientY));
+  cv.addEventListener('click', e => {
+    if (suppressClick) { suppressClick = false; return; }
+    clickScreen(e.clientX, e.clientY);
+  });
+
+  // phone walk stick + one-finger look on the right half of the screen
+  const padEl = $('#walk-pad'), knobEl = $('#walk-knob'), runEl = $('#b-run');
+  const PAD_R = 46;
+  function placeKnob(nx, ny) {
+    if (!knobEl) return;
+    knobEl.style.transform = 'translate(' + (nx * PAD_R) + 'px,' + (ny * PAD_R) + 'px)';
+  }
+  function setStickFromPoint(clientX, clientY) {
+    const r = padEl.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let dx = clientX - cx, dy = clientY - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const max = r.width * .42;
+    if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+    stick.x = dx / max; stick.y = -dy / max; // y+ = forward (screen up)
+    stick.active = Math.hypot(stick.x, stick.y) > .12;
+    if (!stick.active) { stick.x = 0; stick.y = 0; }
+    placeKnob(dx / max, dy / max);
+  }
+  function clearStick() {
+    stick.x = stick.y = 0; stick.active = false; placeKnob(0, 0);
+  }
+  if (padEl) {
+    let stickId = null;
+    const fromRun = t => runEl && (t === runEl || runEl.contains(t));
+    const onPad = (e, start) => {
+      if (!started || modalOpen()) return;
+      if (start && fromRun(e.target)) return;
+      const t = [...e.changedTouches].find(tt => start ? stickId == null : tt.identifier === stickId);
+      if (!t) return;
+      if (start) stickId = t.identifier;
+      e.preventDefault();
+      setStickFromPoint(t.clientX, t.clientY);
+    };
+    padEl.addEventListener('touchstart', e => onPad(e, true), { passive: false });
+    padEl.addEventListener('touchmove', e => onPad(e, false), { passive: false });
+    const endPad = e => {
+      if ([...e.changedTouches].some(tt => tt.identifier === stickId)) { stickId = null; clearStick(); }
+    };
+    padEl.addEventListener('touchend', endPad);
+    padEl.addEventListener('touchcancel', endPad);
+    // mouse fallback (devtools / hybrid)
+    let mouseStick = false;
+    padEl.addEventListener('mousedown', e => {
+      if (e.button !== 0 || !started || fromRun(e.target)) return;
+      mouseStick = true; e.preventDefault(); setStickFromPoint(e.clientX, e.clientY);
+    });
+    addEventListener('mousemove', e => { if (mouseStick) setStickFromPoint(e.clientX, e.clientY); });
+    addEventListener('mouseup', () => { if (mouseStick) { mouseStick = false; clearStick(); } });
+  }
+  if (runEl) {
+    const setRun = on => { stick.run = !!on; runEl.classList.toggle('green', stick.run); };
+    runEl.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); setRun(true); }, { passive: false });
+    runEl.addEventListener('touchend', e => { e.preventDefault(); setRun(false); });
+    runEl.addEventListener('touchcancel', () => setRun(false));
+    runEl.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); setRun(true); });
+    addEventListener('mouseup', () => { if (stick.run) setRun(false); });
+    runEl.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  cv.addEventListener('touchstart', e => {
+    if (!started || modalOpen() || typing()) return;
+    const t = e.changedTouches[0];
+    if (!t || t.clientX < innerWidth * .42) return; // left side reserved for stick / chat
+    touchLookId = t.identifier; touchLookX = t.clientX; suppressClick = false;
+  }, { passive: true });
+  cv.addEventListener('touchmove', e => {
+    const t = [...e.changedTouches].find(tt => tt.identifier === touchLookId);
+    if (!t) return;
+    const d = (t.clientX - touchLookX) * .014;
+    if (Math.abs(d) > .002) suppressClick = true;
+    touchLookX = t.clientX; yawT += d; view.yaw += d;
+    e.preventDefault();
+  }, { passive: false });
+  const endLook = e => {
+    if ([...e.changedTouches].some(tt => tt.identifier === touchLookId)) touchLookId = null;
+  };
+  cv.addEventListener('touchend', e => {
+    const t = [...e.changedTouches].find(tt => tt.identifier === touchLookId);
+    if (t) {
+      if (!suppressClick && !modalOpen()) clickScreen(t.clientX, t.clientY);
+      suppressClick = true; // block the synthetic mouse click that follows
+      setTimeout(() => { suppressClick = false; }, 350);
+    }
+    endLook(e);
+  });
+  cv.addEventListener('touchcancel', endLook);
+  addEventListener('resize', syncPhoneUI);
+  syncPhoneUI();
 
   // ---------- rendering ----------
   function bubble(text, x, y) {
@@ -881,17 +983,20 @@
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.clearRect(0, 0, vw, vh);
     if (!started) { view.prep(); view.clear('#7ec96a'); return; }
 
-    // movement relative to the camera
+    // movement relative to the camera (WASD / arrows / phone stick)
     let ix = 0, iy = 0;
     if (!modalOpen() && !typing()) {
       if (keys.has('a') || keys.has('arrowleft')) ix--; if (keys.has('d') || keys.has('arrowright')) ix++;
       if (keys.has('w') || keys.has('arrowup')) iy++; if (keys.has('s') || keys.has('arrowdown')) iy--;
+      if (stick.active) { ix += stick.x; iy += stick.y; }
     }
-    const moving = !!(ix || iy);
+    const moving = Math.hypot(ix, iy) > .08;
     if (moving) {
       const s = Math.sin(view.yaw), c = Math.cos(view.yaw);
       let wx = c * ix + s * iy, wz = -s * ix + c * iy; const l = Math.hypot(wx, wz); wx /= l; wz /= l;
-      const sp = (keys.has('shift') ? 280 : 190) * dt;
+      const mag = stick.active ? Math.min(1, Math.hypot(stick.x, stick.y)) : 1;
+      const sprint = keys.has('shift') || stick.run;
+      const sp = (sprint ? 280 : 190) * dt * mag;
       let nx = Math.max(10, Math.min(WD.width * TILE - 10, self.x + wx * sp)), ny = Math.max(10, Math.min(WD.height * TILE - 10, self.y + wz * sp));
       if (!blocked(nx, self.y)) self.x = nx; if (!blocked(self.x, ny)) self.y = ny;
       self.psi += angDiff(self.psi, Math.atan2(wx, wz)) * Math.min(1, dt * 14); self.walk += dt * 11;
@@ -1019,7 +1124,9 @@
     for (const p of list) { const s = toPage(p.rx / TILE, 1.7, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
-    let hint = 'WASD · stalls · park · pets follow / animals roam · Enter chat';
+    let hint = isPhoneUI()
+      ? 'Stick to walk · 🏃 run · swipe right to look · tap to interact'
+      : 'WASD · stalls · park · pets follow / animals roam · Enter chat';
     if (me.land == null) hint = 'Claim a Farm Lot (1–8) · house lots south · expansion east';
     else if (hoverTile) {
       if (hoverTile.stall) hint = 'Click: ' + hoverTile.stall.name;
