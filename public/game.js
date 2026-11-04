@@ -1094,12 +1094,12 @@
       const p = players[n], ddx = p.x - p.rx, ddy = p.y - p.ry; p.rx += ddx * .25; p.ry += ddy * .25;
       const mv = Math.abs(ddx) + Math.abs(ddy) > 1.5;
       if (mv) { p.walk += dt * 11; p.psi += angDiff(p.psi, Math.atan2(ddx, ddy)) * Math.min(1, dt * 14); }
-      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.55, p.walk, mv); list.push(p);
+      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.05, p.walk, mv); list.push(p);
     }
-    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.65, self.walk, moving);
+    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving);
     updateCritters(dt);
     for (const c of critters) {
-      const sc = c.pet ? 1.15 : (c.kind === 'cow' ? 1.55 : 1.25);
+      const sc = c.pet ? 0.85 : (c.kind === 'cow' ? 1.15 : 0.95);
       const cm = (c._follow && Math.hypot((c._fx || c.x) - c.x, (c._fz || c.z) - c.z) > 0.08)
         || (c._roam && Math.hypot(c.tx - c.x, c.tz - c.z) > 0.12);
       view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc, walk: c.walk || 0, moving: !!cm });

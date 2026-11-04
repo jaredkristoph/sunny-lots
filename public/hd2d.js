@@ -70,6 +70,47 @@ function matFor(hex, alpha) {
   return m;
 }
 
+/** Soft elliptical blob — classic HD-2D ground shadow. */
+let _blobShadowTex = null;
+function blobShadowTex() {
+  if (_blobShadowTex) return _blobShadowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grd.addColorStop(0, 'rgba(40,28,18,0.55)');
+  grd.addColorStop(0.45, 'rgba(40,28,18,0.28)');
+  grd.addColorStop(1, 'rgba(40,28,18,0)');
+  g.fillStyle = grd;
+  g.beginPath();
+  g.ellipse(32, 32, 30, 18, 0, 0, Math.PI * 2);
+  g.fill();
+  _blobShadowTex = new THREE.CanvasTexture(c);
+  _blobShadowTex.colorSpace = THREE.SRGBColorSpace;
+  _blobShadowTex.needsUpdate = true;
+  return _blobShadowTex;
+}
+
+/** 1px dark outline so paper-doll sprites read as flat 2D. */
+function inkOutline(g, w, h) {
+  const src = g.getImageData(0, 0, w, h);
+  const dst = g.createImageData(w, h);
+  const s = src.data, d = dst.data;
+  for (let i = 0; i < s.length; i++) d[i] = s[i];
+  const solid = (x, y) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    return s[(y * w + x) * 4 + 3] > 40;
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (solid(x, y)) continue;
+    if (solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1)) {
+      const i = (y * w + x) * 4;
+      d[i] = 55; d[i + 1] = 40; d[i + 2] = 28; d[i + 3] = 230;
+    }
+  }
+  g.putImageData(dst, 0, 0);
+}
+
 /** Walk cycle frame: 0 idle, 1 left stride, 2 right stride. */
 function walkFrame(phase, moving) {
   if (!moving) return 0;
@@ -121,6 +162,7 @@ function makeCharSprite(avatar, cat, frame) {
   // hair
   px(9 + lean, 4, 14, 5, hair); px(8 + lean, 7, 3, 8, hair); px(21 + lean, 7, 3, 8, hair);
   if (avatar && avatar.gender === 'female') px(8 + lean, 14, 3, 12, hair), px(21 + lean, 14, 3, 12, hair);
+  inkOutline(g, w, h);
 
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
@@ -163,6 +205,7 @@ function makeCritterSprite(kind, pet, frame) {
     px(7, 8 + Math.abs(hop), 10, 7, '#fffaf5'); px(4, 6 + Math.abs(hop), 6, 6, '#fffaf5'); px(4, 8 + Math.abs(hop), 3, 2, '#ffd0d8');
     px(8 + hop, 15, 2, 3, '#ffd0d8'); px(13 - hop, 15, 2, 3, '#ffd0d8');
   }
+  inkOutline(g, 24, 20);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
@@ -206,26 +249,27 @@ class View {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setClearColor(0xc8efb8, 1);
-    // soft shadows looked muddy on mobile — keep crisp/readable instead
+    // HD-2D uses painted blob shadows (not muddy realtime maps)
     this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xe8f5d8, 0.006);
+    this.scene.fog = new THREE.FogExp2(0xe8f5d8, 0.005);
 
     this.camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 200);
     this.camera.position.set(0, 28, 0);
     this.camera.up.set(0, 1, 0);
 
-    // bright pastel daylight (readable, not muddy)
-    this.hemi = new THREE.HemisphereLight(0xfff8f0, 0xb8e0a8, 1.35);
+    // warmer key + cooler fill so blob shadows read like HD-2D daylight
+    this.hemi = new THREE.HemisphereLight(0xfff4e8, 0x9ecf90, 1.05);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff5e6, 1.15);
-    this.sun.position.set(14, 32, 12);
+    this.sun = new THREE.DirectionalLight(0xffe8c8, 1.35);
+    this.sun.position.set(18, 28, 10);
     this.sun.castShadow = false;
     this.scene.add(this.sun);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+    this.scene.add(this.sun.target);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 
     this.staticRoot = new THREE.Group();
     this.scene.add(this.staticRoot);
@@ -244,9 +288,21 @@ class View {
     this._boxPool = [];
     this._quadPool = [];
     this._spritePool = [];
+    this._shadowPool = [];
     this._boxUsed = 0;
     this._quadUsed = 0;
     this._spriteUsed = 0;
+    this._shadowUsed = 0;
+    this._shadowMat = new THREE.MeshBasicMaterial({
+      map: blobShadowTex(),
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    // sun slant for painted shadows (matches light direction)
+    this._sunOffX = -0.55;
+    this._sunOffZ = 0.4;
     this._resizeComposer();
   }
 
@@ -274,12 +330,56 @@ class View {
   _takeSprite() {
     let s = this._spritePool[this._spriteUsed];
     if (!s) {
-      s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
+      s = new THREE.Sprite(new THREE.SpriteMaterial({
+        transparent: true,
+        depthWrite: false,
+        sizeAttenuation: true,
+        toneMapped: false, // flat unlit = paper 2D
+      }));
       s.center.set(0.5, 0);
       this._spritePool.push(s);
     }
     this._spriteUsed++;
     return s;
+  }
+
+  _takeShadow() {
+    let m = this._shadowPool[this._shadowUsed];
+    if (!m) {
+      m = new THREE.Mesh(this._quadGeo, this._shadowMat);
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 1;
+      this._shadowPool.push(m);
+    }
+    this._shadowUsed++;
+    return m;
+  }
+
+  /** Soft elliptical ground shadow (HD-2D style). */
+  addDropShadow(x, z, w, d, alpha) {
+    const mesh = this._takeShadow();
+    const ox = this._sunOffX * Math.max(w, d) * 0.35;
+    const oz = this._sunOffZ * Math.max(w, d) * 0.35;
+    mesh.position.set(x + ox, 0.008, z + oz);
+    mesh.scale.set(Math.max(0.25, w), Math.max(0.18, d), 1);
+    mesh.material = this._shadowMat;
+    if (alpha != null && alpha < 1) {
+      // per-instance opacity via cloned mat would be heavy — bake into scale/use shared
+      mesh.material.opacity = 1;
+    }
+    mesh.visible = true;
+    this.dynamic.add(mesh);
+  }
+
+  _bakeDropShadow(parent, x, z, w, d) {
+    const mesh = new THREE.Mesh(this._quadGeo, this._shadowMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.renderOrder = 1;
+    const ox = this._sunOffX * Math.max(w, d) * 0.35;
+    const oz = this._sunOffZ * Math.max(w, d) * 0.35;
+    mesh.position.set(x + ox, 0.007, z + oz);
+    mesh.scale.set(Math.max(0.3, w), Math.max(0.2, d), 1);
+    parent.add(mesh);
   }
 
   _mat(hex, a) {
@@ -321,9 +421,9 @@ class View {
     this.camera.top = viewH / 2; this.camera.bottom = -viewH / 2;
     this.camera.updateProjectionMatrix();
 
-    // isometric-ish orbit around focus
-    const dist = 32;
-    const pitch = 0.95;
+    // HD-2D-ish elevated ortho
+    const dist = 34;
+    const pitch = 1.05;
     const yaw = this.yaw;
     const cx = this.fx, cz = this.fz;
     const elev = Math.sin(pitch) * dist;
@@ -333,7 +433,7 @@ class View {
       elev,
       cz + Math.cos(yaw) * flat
     );
-    this.camera.lookAt(cx, 0.4, cz);
+    this.camera.lookAt(cx, 0.35, cz);
     this.sun.target.position.set(cx, 0, cz);
     this.sun.target.updateMatrixWorld();
   }
@@ -341,7 +441,7 @@ class View {
   prep() {
     // recycle pooled meshes (hide extras)
     while (this.dynamic.children.length) this.dynamic.remove(this.dynamic.children[0]);
-    this._boxUsed = 0; this._quadUsed = 0; this._spriteUsed = 0;
+    this._boxUsed = 0; this._quadUsed = 0; this._spriteUsed = 0; this._shadowUsed = 0;
     this._pending.length = 0;
     this._updateCamera();
   }
@@ -397,9 +497,13 @@ class View {
         const mesh = new THREE.Mesh(geo, this._mat(b.c, b.a));
         mesh.position.set(wx, wy, wz);
         mesh.scale.set(b.w, b.h, b.d);
-        mesh.castShadow = (b.a == null || b.a > 0.8);
-        mesh.receiveShadow = true;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
         this.staticRoot.add(mesh);
+        // painted HD-2D blob under taller props / buildings
+        if (b.h > 0.45 && b.w * b.d > 0.06 && (b.a == null || b.a > 0.75)) {
+          this._bakeDropShadow(this.staticRoot, wx, wz, b.w + b.h * 0.4, b.d + b.h * 0.28);
+        }
       }
     }
   }
@@ -415,41 +519,50 @@ class View {
     const spr = this._takeSprite();
     spr.material.map = tex;
     spr.material.needsUpdate = true;
-    const sc = opts.scale || 1.35;
+    const sc = opts.scale || 1.0;
     const iw = (tex.image && tex.image.width) || 32;
     const ih = (tex.image && tex.image.height) || 40;
-    const bob = moving ? Math.abs(Math.sin(phase)) * 0.09 : 0;
-    const squash = moving ? 1 - Math.abs(Math.sin(phase)) * 0.05 : 1;
-    const stretch = moving ? 1 + Math.abs(Math.sin(phase)) * 0.03 : 1;
+    const bob = moving ? Math.abs(Math.sin(phase)) * 0.06 : 0;
+    const squash = moving ? 1 - Math.abs(Math.sin(phase)) * 0.04 : 1;
+    const stretch = moving ? 1 + Math.abs(Math.sin(phase)) * 0.025 : 1;
     spr.scale.set(sc * (iw / 32) * squash, sc * (ih / 32) * stretch, 1);
     spr.position.set(x, (y || 0) + 0.02 + bob, z);
     spr.visible = true;
     this.dynamic.add(spr);
+    // soft oval under feet
+    if (opts.shadow !== false) {
+      this.addDropShadow(x, z, sc * 0.52, sc * 0.32);
+    }
   }
 
   addCharacter(avatar, cat, x, z, scale, walk, moving) {
     const frame = walkFrame(walk || 0, !!moving);
     const tex = makeCharSprite(avatar, cat, frame);
-    this.addBillboard(tex, x, 0, z, { scale: scale || 1.6, walk: walk || 0, moving: !!moving });
+    this.addBillboard(tex, x, 0, z, { scale: scale || 1.05, walk: walk || 0, moving: !!moving });
   }
 
   flush() {
     for (const job of this._pending) {
       const cs = Math.cos(job.psi), sn = Math.sin(job.psi);
+      const r = job.r || 1;
       for (const b of job.boxes) {
         if (!b || b.w <= 0 || b.h <= 0 || b.d <= 0) continue;
-        const lx = b.x, lz = b.z, ly = b.y + b.h / 2;
+        const lx = b.x * r, lz = b.z * r, ly = (b.y + b.h / 2) * r;
         const wx = job.ox + lx * cs + lz * sn;
         const wz = job.oz - lx * sn + lz * cs;
         const wy = job.oy + ly;
+        const bw = b.w * r, bh = b.h * r, bd = b.d * r;
         const mesh = this._takeBox();
         mesh.material = this._mat(b.c, b.a);
         mesh.position.set(wx, wy, wz);
-        mesh.scale.set(b.w, b.h, b.d);
+        mesh.scale.set(bw, bh, bd);
         mesh.rotation.y = job.psi;
-        mesh.castShadow = (b.a == null || b.a > 0.8);
+        mesh.castShadow = false;
         mesh.visible = true;
         this.dynamic.add(mesh);
+        if (bh > 0.5 && bw * bd > 0.05 && (b.a == null || b.a > 0.75)) {
+          this.addDropShadow(wx, wz, bw + bh * 0.35, bd + bh * 0.22);
+        }
       }
     }
     this._pending.length = 0;
