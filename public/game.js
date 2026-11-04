@@ -338,7 +338,7 @@
   // ---------- 3D view ----------
   const cv = $('#game'), lab = $('#labels'), lctx = lab.getContext('2d');
   const view = new Vox.View(cv);
-  let PIX = 2, zoom = 32, yawT = view.yaw, mouse = { x: 0, y: 0 };
+  let PIX = 3, zoom = 34, yawT = view.yaw, mouse = { x: 0, y: 0 };
   const scaleX = () => innerWidth / cv.width, scaleY = () => innerHeight / cv.height;
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
   const toPage = (X, Y, Z) => { const s = view.toScreen(X, Y, Z); return [s[0] * scaleX(), s[1] * scaleY(), s[2]]; };
@@ -982,8 +982,8 @@
     requestAnimationFrame(frame);
     const dt = Math.min(.05, (tNow - last) / 1000); last = tNow; const t = tNow / 1000;
     const vw = innerWidth, vh = innerHeight, dpr = window.devicePixelRatio || 1;
-    // lower PIX = sharper (less CSS upscale blur). Was 3/2; 2 keeps edges crisp without killing FPS
-    PIX = 2;
+    // chunkier pixels → HD-2D miniature look when CSS-upscaled
+    PIX = 3;
     const bw = Math.ceil(vw / PIX), bh = Math.ceil(vh / PIX);
     if (cv.width !== bw || cv.height !== bh) {
       cv.width = bw; cv.height = bh;
@@ -991,7 +991,7 @@
     }
     if (lab.width !== Math.round(vw * dpr) || lab.height !== Math.round(vh * dpr)) { lab.width = Math.round(vw * dpr); lab.height = Math.round(vh * dpr); }
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.clearRect(0, 0, vw, vh);
-    if (!started) { view.prep(); view.clear('#b8e0b0'); return; }
+    if (!started) { view.prep(); view.clearSky(); return; }
 
     // movement relative to the camera (WASD / arrows / phone stick)
     let ix = 0, iy = 0;
@@ -1017,9 +1017,9 @@
     view.yaw += (yawT - view.yaw) * Math.min(1, dt * 10);
     view.ppt += (zoom - view.ppt) * Math.min(1, dt * 10);
     view.fx += (self.x / TILE - view.fx) * Math.min(1, dt * 9); view.fz += (self.y / TILE - view.fz) * Math.min(1, dt * 9);
-    view.hcf = .55; view.prep(); view.clear('#b8e0b0');
+    view.hcf = .52; view.focusD = 0; view.prep(); view.clearSky();
 
-    // ground — soft pastel mint grass + warm creamy floors
+    // ground — pastel grass + warm cobble paths (HD-2D tile read)
     const cs = [view.pick(0, 0, 0), view.pick(bw, 0, 0), view.pick(0, bh, 0), view.pick(bw, bh, 0)];
     const x0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.x))) - 1), x1 = Math.min(WD.width - 1, Math.ceil(Math.max(...cs.map(c => c.x))) + 1);
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
@@ -1028,10 +1028,10 @@
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
       if (inPark(tx, tz)) col = chk ? '#c8efc0' : '#b8e6b0';
-      else if (houseFloor) col = chk ? '#f5e6c8' : '#ead9b4'; // warm cream wood
+      else if (houseFloor) col = chk ? '#f5e6c8' : '#ead9b4';
       else if (li >= 0) col = chk ? '#d4f2b8' : '#c6eaa8';
       else if (isMargin(tx, tz)) col = chk ? '#b5e0a8' : '#a8d69c';
-      else col = chk ? '#efe8d8' : '#e4dcc8';
+      else col = chk ? '#e8dcc8' : '#d9cdb8'; // soft cobble lane
       view.quad(tx, tz, tx + 1, tz + 1, 0, col);
     }
     // land floors: soil under plants, house planks, faint grid on my land
@@ -1102,6 +1102,7 @@
       view.add(B, c.x, 0, c.z, c.psi, c.pet ? .7 : (c.kind === 'cow' ? 1.1 : .85));
     }
     view.flush();
+    view.finish();
 
     // labels (crisp text on a full-resolution overlay)
     WD.lands.forEach((o, i) => {

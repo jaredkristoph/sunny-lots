@@ -18,13 +18,19 @@ const Vox = (() => {
     if (!v) { const [r, g, b] = parse(hex); const cl = x => Math.max(0, Math.min(255, Math.round(x * f))); v = 'rgb(' + cl(r) + ',' + cl(g) + ',' + cl(b) + ')'; faceCache.set(key, v); }
     return v;
   }
-  // Soft pastel cel bands — gentle lift, no harsh shade
+  // HD-2D style: soft bands + warm fill light
   function celFace(hex, dl, isTop) {
-    const band = isTop ? 1.1 : dl > .4 ? 1.02 : dl > 0 ? .92 : .82;
+    const band = isTop ? 1.14 : dl > .5 ? 1.06 : dl > .15 ? .96 : .84;
     return face(hex, band);
   }
-  const LIGHT = [-.35, .9, .25];
-  const OUTLINE = '#d4c4b0';
+  function mixHex(a, b, t) {
+    const A = parse(a), B = parse(b);
+    return toHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t);
+  }
+  // golden-hour side light (matches Octopath-like HD-2D)
+  const LIGHT = [.55, .75, .25];
+  const OUTLINE = '#cbb8a4';
+  const FOG = '#f0dcc8';
 
   const mk = () => { const a = []; a.add = (x, y, z, w, h, d, c, al) => { a.push({ x, y, z, w, h, d, c, a: al }); return a; }; return a; };
 
@@ -38,8 +44,9 @@ const Vox = (() => {
     constructor(canvas) {
       this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
       this.ctx.imageSmoothingEnabled = false;
-      this.yaw = .78; this.pitch = .92; this.ppt = 30; this.fx = 0; this.fz = 0; this.hcf = .55;
+      this.yaw = .78; this.pitch = .98; this.ppt = 32; this.fx = 0; this.fz = 0; this.hcf = .52;
       this.groups = []; this.P = new Float64Array(16);
+      this.focusD = 0; this._fog = FOG;
     }
     prep() {
       this.W = this.cv.width; this.H = this.cv.height;
@@ -56,6 +63,22 @@ const Vox = (() => {
       return { x: this.fx + rx * this.cyw + rz * this.syw, z: this.fz - rx * this.syw + rz * this.cyw };
     }
     clear(c) { this.ctx.fillStyle = c; this.ctx.fillRect(0, 0, this.W, this.H); }
+    // soft warm sky wash (HD-2D atmosphere)
+    clearSky() {
+      const ctx = this.ctx, g = ctx.createLinearGradient(0, 0, 0, this.H);
+      g.addColorStop(0, '#f7e4d2');
+      g.addColorStop(.35, '#e8f0d8');
+      g.addColorStop(.7, '#c8e6b8');
+      g.addColorStop(1, '#b5dca8');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, this.W, this.H);
+      // soft sun bloom (upper-right)
+      const sx = this.W * .78, sy = this.H * .12, r = Math.max(this.W, this.H) * .45;
+      const sun = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+      sun.addColorStop(0, 'rgba(255,236,200,.55)');
+      sun.addColorStop(.45, 'rgba(255,220,180,.18)');
+      sun.addColorStop(1, 'rgba(255,220,180,0)');
+      ctx.fillStyle = sun; ctx.fillRect(0, 0, this.W, this.H);
+    }
     // flat rectangle on the ground (drawn immediately, always behind queued objects)
     quad(x0, z0, x1, z1, y, fill, edge) {
       const ctx = this.ctx, P = this.P;
@@ -63,15 +86,21 @@ const Vox = (() => {
       for (let i = 0; i < 4; i++) {
         const X = i === 0 || i === 3 ? x0 : x1, Z = i < 2 ? z0 : z1;
         const dx = X - this.fx, dz = Z - this.fz, rx = dx * this.cyw - dz * this.syw, rz = dx * this.syw + dz * this.cyw;
-        const sx = this.W / 2 + rx * this.ppt, sy = this.hc - (y * this.cp + rz * this.sp) * this.ppt;
+        const sx = Math.round(this.W / 2 + rx * this.ppt), sy = Math.round(this.hc - (y * this.cp + rz * this.sp) * this.ppt);
         P[i * 2] = sx; P[i * 2 + 1] = sy;
         if (sx < mnx) mnx = sx; if (sx > mxx) mxx = sx; if (sy < mny) mny = sy; if (sy > mxy) mxy = sy;
       }
       if (mxx < 0 || mnx > this.W || mxy < 0 || mny > this.H) return;
+      // soft depth fog on ground tiles
+      const midX = (x0 + x1) / 2, midZ = (z0 + z1) / 2;
+      const dx = midX - this.fx, dz = midZ - this.fz, rz = dx * this.syw + dz * this.cyw;
+      const depth = rz * this.cp - y * this.sp;
+      const fogT = Math.min(.55, Math.max(0, (Math.abs(depth - this.focusD) - 4) / 18));
+      const col = fogT > .02 ? mixHex(fill, this._fog, fogT) : fill;
       ctx.beginPath(); ctx.moveTo(P[0], P[1]); ctx.lineTo(P[2], P[3]); ctx.lineTo(P[4], P[5]); ctx.lineTo(P[6], P[7]); ctx.closePath();
-      ctx.fillStyle = fill; ctx.fill();
-      const e = edge || 'rgba(180,160,140,.28)';
-      ctx.strokeStyle = e; ctx.lineWidth = Math.max(.8, this.ppt * .022); ctx.stroke();
+      ctx.fillStyle = col; ctx.fill();
+      // pixel-grid hairline for HD-2D tile feel
+      ctx.strokeStyle = edge || 'rgba(170,150,130,.2)'; ctx.lineWidth = 1; ctx.stroke();
     }
     // queue a model (array of boxes) at a world position, rotated psi about the Y axis
     add(boxes, ox, oy, oz, psi, r) {
@@ -92,6 +121,23 @@ const Vox = (() => {
       this.groups.sort((p, q) => q.d - p.d);
       for (const g of this.groups) for (const it of g.items) this.drawBox(it);
     }
+    // tilt-shift vignette + warm bloom overlay
+    finish() {
+      const ctx = this.ctx, w = this.W, h = this.H;
+      // soft focus ring (edges slightly washed — DOF stand-in)
+      const v = ctx.createRadialGradient(w / 2, h * .52, h * .18, w / 2, h * .52, h * .78);
+      v.addColorStop(0, 'rgba(255,245,230,0)');
+      v.addColorStop(.55, 'rgba(240,220,200,.06)');
+      v.addColorStop(1, 'rgba(200,170,150,.28)');
+      ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
+      // gentle top/bottom blur wash
+      const tb = ctx.createLinearGradient(0, 0, 0, h);
+      tb.addColorStop(0, 'rgba(247,228,210,.22)');
+      tb.addColorStop(.12, 'rgba(247,228,210,0)');
+      tb.addColorStop(.88, 'rgba(180,200,160,0)');
+      tb.addColorStop(1, 'rgba(160,180,140,.2)');
+      ctx.fillStyle = tb; ctx.fillRect(0, 0, w, h);
+    }
     drawBox(it) {
       const b = it.b, ctx = this.ctx, P = this.P, cs = it.cs, sn = it.sn;
       const hx = b.w / 2, hy = b.h / 2, hz = b.d / 2, cyy = b.y + hy;
@@ -104,24 +150,44 @@ const Vox = (() => {
         P[i * 2] = sx; P[i * 2 + 1] = sy;
         if (sx < mnx) mnx = sx; if (sx > mxx) mxx = sx; if (sy < mny) mny = sy; if (sy > mxy) mxy = sy;
       }
-      // soft pastel outline — skip tiny/distant boxes
       const span = Math.max(mxx - mnx, mxy - mny);
-      const doOutline = span >= 9 && (b.a === undefined || b.a > .55);
-      const ow = span > 32 ? Math.min(1.5, .75 + this.ppt * .025) : .9;
-      if (b.a !== undefined) ctx.globalAlpha = b.a;
+      const doOutline = span >= 8 && (b.a === undefined || b.a > .55);
+      const ow = span > 30 ? Math.min(1.6, .8 + this.ppt * .028) : 1;
+      // depth fog + slight far desaturation (DOF / atmosphere)
+      const fogT = Math.min(.62, Math.max(0, (Math.abs(it.d - this.focusD) - 3.5) / 16));
+      const baseA = b.a !== undefined ? b.a : 1;
+      if (baseA < 1) ctx.globalAlpha = baseA;
       for (let f = 0; f < 5; f++) {
         const fc = FACES[f], n = fc.n;
         const nx = n[0] * cs + n[2] * sn, nz = -n[0] * sn + n[2] * cs;
         if (n[1] * this.sp - (nx * this.syw + nz * this.cyw) * this.cp <= 0) continue;
         const dl = LIGHT[0] * nx + LIGHT[1] * n[1] + LIGHT[2] * nz;
-        const col = celFace(b.c, Math.max(0, dl), n[1] > .5);
+        let col = celFace(b.c, Math.max(0, dl), n[1] > .5);
+        if (fogT > .02) col = mixHex(col, this._fog, fogT);
         const c = fc.c;
         ctx.beginPath(); ctx.moveTo(P[c[0] * 2], P[c[0] * 2 + 1]); ctx.lineTo(P[c[1] * 2], P[c[1] * 2 + 1]); ctx.lineTo(P[c[2] * 2], P[c[2] * 2 + 1]); ctx.lineTo(P[c[3] * 2], P[c[3] * 2 + 1]); ctx.closePath();
         ctx.fillStyle = col; ctx.fill();
-        if (doOutline) { ctx.strokeStyle = OUTLINE; ctx.lineWidth = ow; ctx.lineJoin = 'round'; ctx.globalAlpha = (b.a !== undefined ? b.a : 1) * .7; ctx.stroke(); ctx.globalAlpha = b.a !== undefined ? b.a : 1; }
-        else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
+        // subtle pixel dither on large faces (HD-2D texture cue)
+        if (span > 22 && fogT < .35 && n[1] < .9) {
+          ctx.save(); ctx.clip();
+          ctx.globalAlpha = baseA * .12;
+          ctx.fillStyle = lighten(col, .18);
+          const step = 3;
+          for (let yy = (mny | 0); yy < mxy; yy += step)
+            for (let xx = (mnx | 0) + ((yy >> 1) & 1) * 2; xx < mxx; xx += step)
+              ctx.fillRect(xx, yy, 1, 1);
+          ctx.restore();
+          if (baseA < 1) ctx.globalAlpha = baseA; else ctx.globalAlpha = 1;
+        }
+        if (doOutline) {
+          ctx.strokeStyle = fogT > .2 ? mixHex(OUTLINE, this._fog, fogT) : OUTLINE;
+          ctx.lineWidth = ow; ctx.lineJoin = 'round';
+          ctx.globalAlpha = baseA * (.55 - fogT * .25);
+          ctx.stroke();
+          ctx.globalAlpha = baseA;
+        } else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
       }
-      if (b.a !== undefined) ctx.globalAlpha = 1;
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -354,7 +420,7 @@ const Vox = (() => {
     const B = mk();
     B.add(0, 0, 0, .95, .1, .65, '#8a5a2b');
     B.add(0, .1, 0, .88, .55, .58, '#fff4d6');
-    B.add(0, .72, 0, 1.12, .1, .78, '#f2b4b4');
+    B.add(0, .72, 0, 1.12, .1, .78, '#a8c4e0');
     B.add(0, .82, 0, .95, .05, .65, '#fffaf0');
     B.add(-.42, .1, .3, .1, .55, .1, '#c9a88a'); B.add(.42, .1, .3, .1, .55, .1, '#c9a88a');
     if (kind === 'lemonade') { B.add(0, .28, .3, .22, .28, .14, '#ffe9a8'); B.add(0, .55, .3, .14, .1, .14, '#fffaf0'); B.add(0, .22, .36, .08, .08, .04, '#ffc9a0'); }
@@ -428,17 +494,21 @@ const Vox = (() => {
   }
   function shopBox(w, h, d, roof) {
     const B = mk();
-    const roofC = roof || '#f2b4b4';
+    const roofC = roof || '#9bb8d8';
     B.add(0, 0, 0, w, h, d, '#fff8e8');
     B.add(0, h, 0, w + .35, .14, d + .35, roofC);
     B.add(0, h + .14, 0, w + .1, .08, d + .1, '#fffaf0');
+    // timber beams (HD-2D half-timber cue)
+    B.add(-w * .28, .2, d / 2 - .02, .08, h - .25, .06, '#d4b090');
+    B.add(w * .28, .2, d / 2 - .02, .08, h - .25, .06, '#d4b090');
+    B.add(0, h * .45, d / 2 - .02, w - .1, .07, .06, '#d4b090');
     B.add(0, .05, d / 2 + .02, .42, .7, .08, '#d4b090');
     B.add(.14, .4, d / 2 + .06, .08, .1, .04, '#ffe9a8');
     [[-w * .28, .55], [w * .28, .55]].forEach(([x, y]) => {
       B.add(x, y, d / 2, .5, .42, .06, '#d4b090');
       B.add(x, y + .04, d / 2 + .04, .4, .32, .04, '#c8e0f0');
     });
-    B.add(0, h * .55, -d / 2, w * .55, .35, .08, '#f0c0c0');
+    B.add(0, h * .55, -d / 2, w * .55, .35, .08, '#a8c4e0');
     return B;
   }
   function slideBoxes() {
@@ -481,7 +551,7 @@ const Vox = (() => {
   function modelHomeShell(alpha) {
     const B = mk();
     const a = alpha == null ? 1 : alpha;
-    const wall = '#fffaf0', trim = '#fffaf5', roof = '#f2b4b4', glass = '#c8e0f0', wood = '#d4b090';
+    const wall = '#fffaf0', trim = '#fffaf5', roof = '#9bb8d8', glass = '#c8e0f0', wood = '#d4b090';
     // walls — cream barn cottage
     B.add(0, .2, -2.25, 5.5, 1.65, .24, wall, a);
     B.add(-2.65, .2, -.2, .24, 1.65, 4.3, wall, a);
