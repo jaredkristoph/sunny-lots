@@ -335,11 +335,13 @@
     const o = WD.lands[me.land]; self.x = (o.x + 4) * TILE; self.y = (o.y + 8.6) * TILE;
   };
 
-  // ---------- 3D view ----------
+  // ---------- HD-2D view (Three.js) ----------
+  if (!window.HD2D || !HD2D.View) throw new Error('HD2D renderer missing — check hd2d-boot.js');
   const cv = $('#game'), lab = $('#labels'), lctx = lab.getContext('2d');
-  const view = new Vox.View(cv);
-  let PIX = 3, zoom = 34, yawT = view.yaw, mouse = { x: 0, y: 0 };
-  const scaleX = () => innerWidth / cv.width, scaleY = () => innerHeight / cv.height;
+  const view = new HD2D.View(cv);
+  let zoom = 36, yawT = view.yaw, mouse = { x: 0, y: 0 };
+  const scaleX = () => innerWidth / Math.max(1, view.W);
+  const scaleY = () => innerHeight / Math.max(1, view.H);
   const toBuf = (cx, cy) => [cx / scaleX(), cy / scaleY()];
   const toPage = (X, Y, Z) => { const s = view.toScreen(X, Y, Z); return [s[0] * scaleX(), s[1] * scaleY(), s[2]]; };
 
@@ -977,21 +979,18 @@
     }
   }
 
-  let last = performance.now();
+  let last = performance.now(), lastW = 0, lastH = 0;
   function frame(tNow) {
     requestAnimationFrame(frame);
     const dt = Math.min(.05, (tNow - last) / 1000); last = tNow; const t = tNow / 1000;
     const vw = innerWidth, vh = innerHeight, dpr = window.devicePixelRatio || 1;
-    // chunkier pixels → HD-2D miniature look when CSS-upscaled
-    PIX = 3;
-    const bw = Math.ceil(vw / PIX), bh = Math.ceil(vh / PIX);
-    if (cv.width !== bw || cv.height !== bh) {
-      cv.width = bw; cv.height = bh;
-      view.ctx.imageSmoothingEnabled = false;
+    if (vw !== lastW || vh !== lastH) {
+      lastW = vw; lastH = vh;
+      view.setSize(vw, vh, isPhoneUI() ? Math.min(dpr, 1.25) : Math.min(dpr, 1.75));
     }
     if (lab.width !== Math.round(vw * dpr) || lab.height !== Math.round(vh * dpr)) { lab.width = Math.round(vw * dpr); lab.height = Math.round(vh * dpr); }
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.clearRect(0, 0, vw, vh);
-    if (!started) { view.prep(); view.clearSky(); return; }
+    if (!started) { view.prep(); view.clearSky(); view.flush(); return; }
 
     // movement relative to the camera (WASD / arrows / phone stick)
     let ix = 0, iy = 0;
@@ -1020,7 +1019,7 @@
     view.hcf = .52; view.focusD = 0; view.prep(); view.clearSky();
 
     // ground — pastel grass + warm cobble paths (HD-2D tile read)
-    const cs = [view.pick(0, 0, 0), view.pick(bw, 0, 0), view.pick(0, bh, 0), view.pick(bw, bh, 0)];
+    const cs = [view.pick(0, 0, 0), view.pick(view.W, 0, 0), view.pick(0, view.H, 0), view.pick(view.W, view.H, 0)];
     const x0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.x))) - 1), x1 = Math.min(WD.width - 1, Math.ceil(Math.max(...cs.map(c => c.x))) + 1);
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
     for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) {
@@ -1068,8 +1067,8 @@
       }
     }
 
-    // objects
-    for (const p of statics) view.add(p.B, p.x, 0, p.z, 0, p.r);
+    // objects (statics baked once into GPU group)
+    if (!view._staticsBaked) { view.bakeStatic(statics); view._staticsBaked = true; }
     // model home walls/roof: solid outside, transparent inside so furniture shows
     if (npcLot) {
       const shell = insideNpcHome() ? npcShellGhost : npcShellSolid;
@@ -1093,13 +1092,13 @@
       const p = players[n], ddx = p.x - p.rx, ddy = p.y - p.ry; p.rx += ddx * .25; p.ry += ddy * .25;
       const mv = Math.abs(ddx) + Math.abs(ddy) > 1.5;
       if (mv) { p.walk += dt * 11; p.psi += angDiff(p.psi, Math.atan2(ddx, ddy)) * Math.min(1, dt * 14); }
-      view.add(Vox.charBoxes(p.a, cat, p.walk, mv), p.rx / TILE, 0, p.ry / TILE, p.psi, .8); list.push(p);
+      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.55); list.push(p);
     }
-    view.add(Vox.charBoxes(me.avatar, cat, self.walk, moving), self.x / TILE, 0, self.y / TILE, self.psi, .8);
+    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.65);
     updateCritters(dt);
     for (const c of critters) {
-      const B = c.pet ? Vox.petBoxes(c.kind) : Vox.animalBoxes(c.kind);
-      view.add(B, c.x, 0, c.z, c.psi, c.pet ? .7 : (c.kind === 'cow' ? 1.1 : .85));
+      const sc = c.pet ? 1.15 : (c.kind === 'cow' ? 1.55 : 1.25);
+      view.addBillboard(c.kind, c.x, 0, c.z, { pet: !!c.pet, scale: sc });
     }
     view.flush();
     view.finish();
@@ -1132,8 +1131,8 @@
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
     WD.lands.forEach((o, i) => { const p = toPage(o.x + .35, 1.15, o.y + .35); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
-    for (const p of list) { const s = toPage(p.rx / TILE, 1.7, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
-    { const s = toPage(self.x / TILE, 1.7, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
+    for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
+    { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
     let hint = isPhoneUI()
       ? 'Stick to move · tap 🚶/🏃 to toggle · swipe right to look'

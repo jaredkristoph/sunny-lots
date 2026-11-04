@@ -93,8 +93,14 @@ body.phone #hud .row .btn,body.touchable #hud .row .btn{padding:8px 10px}
 <div id="hint"></div>
 <div id="toasts"></div>
 <div id="overlay" hidden></div>
-<script src="voxel.js"></script>
-<script src="minigames.js"></script>
-<script src="game.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="hd2d-boot.js"></script>
 </body>
 </html>
