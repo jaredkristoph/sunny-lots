@@ -478,8 +478,8 @@ const Vox = (() => {
       B.add(0, .66, -1.6, 3.2, .08, .06, a); B.add(-1.6, .66, 0, .06, .08, 3.2, a); B.add(1.6, .66, 0, .06, .08, 3.2, a);
       for (let i = -3; i <= 3; i++) { if (Math.abs(i) < 1) continue; B.add(i * .4, .28, 1.6, .05, .38, .05, trim); }
       for (let i = -3; i <= 3; i++) { B.add(i * .4, .28, -1.6, .05, .38, .05, trim); B.add(-1.6, .28, i * .4, .05, .38, .05, trim); B.add(1.6, .28, i * .4, .05, .38, .05, trim); }
-      B.add(0, 2.3, 0, 4.2, .14, 4.2, d); B.add(0, 2.44, 0, 3.7, .16, 3.7, m); B.add(0, 2.6, 0, 3.0, .16, 3.0, lighten(m, .08)); B.add(0, 2.76, 0, 2.3, .16, 2.3, m);   // roof tiers
-      B.add(0, 2.92, 0, 1.6, .16, 1.6, lighten(m, .08)); B.add(0, 3.08, 0, .9, .16, .9, m); B.add(0, 3.24, 0, .3, .3, .3, '#f2b632'); B.add(0, 3.54, 0, .08, .24, .08, '#f2b632');   // finial
+      B.add(0, 2.3, 0, 3.9, .14, 3.9, d); B.add(0, 2.44, 0, 3.4, .16, 3.4, m); B.add(0, 2.6, 0, 2.7, .16, 2.7, lighten(m, .08)); B.add(0, 2.76, 0, 2.0, .16, 2.0, m);   // roof tiers
+      B.add(0, 2.92, 0, 1.3, .16, 1.3, lighten(m, .08)); B.add(0, 3.08, 0, .8, .16, .8, m); B.add(0, 3.24, 0, .3, .3, .3, '#f2b632'); B.add(0, 3.54, 0, .08, .24, .08, '#f2b632');   // finial
       B.add(0, .22, -1.1, 2.4, .26, .5, darken(a, .05)); B.add(0, .48, -1.3, 2.4, .36, .1, darken(a, .05));          // bench along the back
       B.add(0, .22, .2, .9, .34, .9, a); B.add(0, .56, .2, 1.1, .06, 1.1, lighten(a, .2)); B.add(.15, .62, .2, .26, .1, .26, '#ffffff'); B.add(-.25, .62, .1, .2, .14, .2, '#e03131');   // little table + cup + flowers
       for (const x of [-1.55, 1.55]) { B.add(x, 1.75, 1.6, .1, .3, .1, '#ffe066'); }                                // lanterns
@@ -535,6 +535,45 @@ const Vox = (() => {
     return (furnCache[f.id] = { boxes: B, h: top, dyn });
   }
 
+
+  // ---- scenery: layered trees, pines, shrubs, tufts, wildflowers (HD-2D "painted" foliage) ----
+  function tree(kind) {
+    const B = mk(), k = kind | 0;
+    if (k === 2) {   // pine
+      B.add(0, 0, 0, .22, .5, .22, '#6b4423'); B.add(0, .02, 0, .32, .1, .32, '#5a3a1c');
+      const L = [['#1f6b3a', 1.0, .3], ['#2a7d42', .82, .3], ['#35914b', .64, .3], ['#43a653', .46, .28], ['#5bbd62', .28, .26]];
+      L.forEach(([c, w, hh], i) => { B.add(0, .38 + i * .26, 0, w, hh, w, c); B.add(-w * .22, .38 + i * .26 + .06, w * .3, w * .3, .1, .1, lighten(c, .18)); });
+      B.add(0, 1.62, 0, .1, .22, .1, '#7ad06f');
+      return B;
+    }
+    const c0 = k ? ['#2c7a3c', '#3c9a46', '#58b94f', '#86d870'] : ['#2f7d3a', '#43a047', '#5cb85c', '#8be07a'];
+    B.add(0, 0, 0, .3, .12, .3, '#5a3a1c'); B.add(0, 0, 0, .2, .75, .2, '#7a5230'); B.add(.05, .3, .0, .06, .3, .21, '#6b4423');   // trunk + root flare + bark shade
+    B.add(0, .62, 0, 1.0, .3, .9, c0[0]);                                  // underside / shadowed layer
+    B.add(-.34, .72, .1, .5, .34, .5, c0[0]); B.add(.34, .74, -.1, .5, .36, .5, c0[1]);   // side lobes
+    B.add(0, .84, 0, .86, .34, .8, c0[1]);                                 // main mass
+    B.add(-.22, 1.02, -.05, .5, .3, .5, c0[2]); B.add(.24, 1.0, .1, .44, .3, .44, c0[1]);
+    B.add(0, 1.2, 0, .5, .26, .46, c0[2]);                                 // crown
+    B.add(-.18, 1.36, -.1, .28, .14, .26, c0[3]); B.add(.05, 1.2, .2, .2, .08, .1, c0[3]); B.add(-.4, .98, .2, .16, .08, .12, c0[3]);   // sunlit leaves
+    B.add(.3, .62, .28, .12, .1, .12, '#e84a4a'); B.add(-.2, .78, .34, .1, .1, .1, '#e84a4a');   // little red fruit
+    return B;
+  }
+  function shrub(k) {
+    const B = mk(), g = ['#3b8f43', '#4fae4a', '#7bd36c'];
+    B.add(0, 0, 0, .56, .2, .46, g[0]); B.add(-.14, .12, .02, .3, .22, .3, g[1]); B.add(.14, .1, -.02, .32, .2, .3, g[1]); B.add(0, .24, 0, .2, .1, .2, g[2]);
+    if (k) { const fc = ['#ff6fa5', '#ffd43b', '#ffffff']; [[-.16, .16], [.12, .12], [.0, -.14]].forEach(([x, z], n) => B.add(x, .24, z, .08, .08, .08, fc[n])); }
+    return B;
+  }
+  function tuft(k) {
+    const B = mk(), g = ['#4a9d3a', '#6bbb4a', '#8ad35c', '#3b8a34'];
+    [[-.08, -.02, .2], [.0, .05, .28], [.08, -.03, .22], [.04, -.08, .16], [-.05, .06, .15]].forEach(([x, z, h], i) => B.add(x, 0, z, .045, h, .045, g[(i + k) % 4]));
+    return B;
+  }
+  function wildflower(k) {
+    const B = mk(), cols = ['#ff6fa5', '#ffd43b', '#ffffff', '#8ecbff', '#ff8a5c'], c = cols[k % cols.length];
+    B.add(0, 0, 0, .3, .1, .3, '#4fae44');
+    [[-.08, -.06], [.1, .04], [0, .1]].forEach(([x, z], i) => { B.add(x, .08, z, .03, .14 + i * .04, .03, '#3b8a34'); B.add(x, .22 + i * .04, z, .1, .08, .1, c); B.add(x, .27 + i * .04, z, .04, .04, .04, '#ffe066'); });
+    return B;
+  }
   function stallBoxes(kind) {
     const B = mk();
     B.add(0, 0, 0, .95, .1, .65, '#8a5a2b');
@@ -725,5 +764,5 @@ const Vox = (() => {
     return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
   }
 
-  return { View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
+  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

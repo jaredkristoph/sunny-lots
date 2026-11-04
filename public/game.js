@@ -421,11 +421,14 @@
   for (let ty = 0; ty < WD.height; ty++) for (let tx = 0; tx < WD.width; tx++) {
     if (nearSea(tx, ty)) continue;
     if (isMargin(tx, ty) && ((tx * 7 + ty * 13) % 5 === 0)) {
-      const B = Vox.mk(), v = (tx * 3 + ty) % 3, hgt = .5 + v * .12;
-      B.add(0, 0, 0, .2, hgt, .2, '#7a5230').add(0, hgt - .1, 0, .76, .36, .76, '#3f9a45').add(0, hgt + .2, 0, .54, .3, .54, '#4fae44').add(0, hgt + .45, 0, .3, .22, .3, '#5bbd5c');
-      piece(B, tx + .5, ty + .5, 1.3);
+      const v = (tx * 3 + ty) % 3;
+      piece(Vox.tree(v), tx + .5 + (((tx * 5 + ty) % 3) - 1) * .12, ty + .5, 1.45 + (v === 1 ? .1 : 0));
     } else if (isMargin(tx, ty) && ((tx * 5 + ty * 11) % 7 === 0)) {
-      const B = Vox.mk(); B.add(0, 0, 0, .34, .22, .34, '#4fae44').add(.08, .1, .05, .16, .2, .16, '#e84393'); piece(B, tx + .5, ty + .5, .6);
+      piece(Vox.wildflower((tx + ty * 3) % 5), tx + .5, ty + .5, .8);
+    } else if (isMargin(tx, ty) && ((tx * 11 + ty * 3) % 6 === 0)) {
+      piece(Vox.shrub((tx + ty) % 2), tx + .5, ty + .5, 1.0);
+    } else if (isMargin(tx, ty) && ((tx * 13 + ty * 7) % 3 === 0)) {
+      piece(Vox.tuft((tx + ty) % 4), tx + .3 + ((tx * 7 + ty) % 5) * .1, ty + .3 + ((tx + ty * 3) % 5) * .1, 1.0);
     }
   }
   // Fences + land posts follow each lot's real footprint (base 8x8 plus bought squares).
@@ -513,8 +516,7 @@
       piece(Vox.slideBoxes(), P.x + 7.2, P.y + 3.5, 1.4);
       piece(Vox.parkBench(), P.x + 4.5, P.y + 1.5, 1.1);
       piece(Vox.parkBench(), P.x + 5.5, P.y + 5.5, 1.1);
-      const tree = Vox.mk(); tree.add(0, 0, 0, .18, .55, .18, '#7a5230').add(0, .5, 0, .7, .4, .7, '#2f9e44').add(0, .85, 0, .5, .35, .5, '#40c057');
-      piece(tree, P.x + 1.2, P.y + 1.5, 1.2); piece(tree, P.x + 8.5, P.y + 5.2, 1.2);
+      piece(Vox.tree(0), P.x + 1.2, P.y + 1.5, 1.6); piece(Vox.tree(1), P.x + 8.5, P.y + 5.2, 1.6); piece(Vox.tree(2), P.x + 4.5, P.y + 7.2, 1.5); piece(Vox.shrub(1), P.x + 6.5, P.y + 1.2, 1.1);
     }
     WD.lands.forEach(o => { if (o.npc) piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15); }); // solid base/porch always; walls+roof drawn each frame
   })();
@@ -1306,12 +1308,12 @@
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
       if (isSea(tx, tz)) { const wv = Math.sin(t * 1.3 + tx * .6 + tz * .4) + Math.sin(t * .9 - tx * .35 + tz * .7); col = WATER[Math.max(0, Math.min(4, Math.round((wv + 2))))]; }
-      else if (li < 0 && nearSea(tx, tz)) col = chk ? '#f3e3ae' : '#ecd99d';   // sand beach
-      else if (inPark(tx, tz)) col = chk ? '#c8efc0' : '#b8e6b0';
-      else if (houseFloor) col = chk ? '#f5e6c8' : '#ead9b4';
-      else if (li >= 0) col = chk ? '#d4f2b8' : '#c6eaa8';
-      else if (isMargin(tx, tz)) col = chk ? '#b5e0a8' : '#a8d69c';
-      else col = chk ? '#e8dcc8' : '#d9cdb8'; // soft cobble lane
+      else if (li < 0 && nearSea(tx, tz)) col = chk ? '#e8d08a' : '#dfc47c';   // sand beach
+      else if (inPark(tx, tz)) col = chk ? '#8fd45a' : '#86cc52';
+      else if (houseFloor) col = chk ? '#dcb97c' : '#d2ae70';
+      else if (li >= 0) col = chk ? '#86cd4e' : '#7ec548';
+      else if (isMargin(tx, tz)) col = chk ? '#6fb847' : '#66ae41';
+      else col = chk ? '#cdb88f' : '#c3ad84'; // cobble lane
       view.quad(tx, tz, tx + 1, tz + 1, 0.0, col);
       if (isSea(tx, tz)) {
         const shore = !seaOrEdge(tx - 1, tz) || !seaOrEdge(tx + 1, tz) || !seaOrEdge(tx, tz - 1) || !seaOrEdge(tx, tz + 1);

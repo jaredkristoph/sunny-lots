@@ -61,7 +61,7 @@ function matFor(hex, alpha) {
   const tex = pixelTex(hex || '#ccc');
   const m = new THREE.MeshLambertMaterial({
     map: tex,
-    emissive: 0x666666, emissiveMap: tex,   // lifts shaded sides / dark colours so furniture doesn't look muddy
+    emissive: 0x2a2a2a, emissiveMap: tex,   // lifts shaded sides / dark colours so furniture doesn't look muddy
     transparent: a < 0.99,
     opacity: a,
     depthWrite: a > 0.85,
@@ -69,7 +69,55 @@ function matFor(hex, alpha) {
     polygonOffsetFactor: a < 0.99 ? -1 : 0,
     polygonOffsetUnits: a < 0.99 ? -1 : 0,
   });
+  m.onBeforeCompile = patchDetail;
   return m;
+}
+
+/** HD-2D "texture without textures": every surface gets pixel-snapped world-space detail (constant 16 texels/tile) —
+ *  grass blades + flowers, cobble stones, wood planks, grain noise, and a soft ground-contact darkening on side faces. */
+function patchDetail(shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+varying vec3 vWP; varying vec3 vWN;
+float hh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
+    .replace('#include <map_fragment>', `#include <map_fragment>
+{
+  vec3 an = abs(normalize(vWN));
+  bool top = an.y > 0.6;
+  vec2 q = top ? vWP.xz : (an.x > an.z ? vec2(vWP.z, vWP.y) : vec2(vWP.x, vWP.y));
+  vec2 px = floor(q * 16.0);
+  float n1 = hh(px), n2 = hh(floor(q * 4.0) + 3.7);
+  vec3 c = diffuseColor.rgb;
+  float lum = dot(c, vec3(.3, .59, .11));
+  bool green = c.g > c.r * 1.04 && c.g > c.b * 1.3;
+  bool warm = c.r > c.g * 1.05 && c.g > c.b * 1.05;
+  float shade = 1.0;
+  vec3 flower = vec3(-1.0);
+  if (top && green) {
+    shade += (n1 - .5) * .12 + (n2 - .5) * .10;
+    shade -= step(.76, hh(px + 11.0)) * .13;                 // dark blade pixels
+    shade += step(.93, hh(px + 29.0)) * .11;                 // sunlit tips
+    vec2 fc = floor(q * 6.0);
+    if (hh(fc + 5.0) > .985) { float k = hh(fc + 9.0); flower = k < .34 ? vec3(1.0, .86, .35) : k < .67 ? vec3(1.0, .55, .75) : vec3(.97, .97, 1.0); }
+  } else if (top && warm && lum > .45 && lum < .9) {          // cobble / sand lane
+    vec2 cell = vec2(q.x * 3.0 + floor(q.y * 2.0) * .5, q.y * 2.0), f = fract(cell);
+    float mort = min(step(f.x, .09) + step(f.y, .14), 1.0);
+    shade -= mort * .22;
+    shade += (1.0 - mort) * ((hh(floor(cell)) - .5) * .20 + (n1 - .5) * .07 + step(.86, hh(px + 3.0)) * .06 - step(.95, hh(px + 8.0)) * .12);   // per-stone tint, chips, pebbles
+  } else if (!top && warm && lum < .75) {                   // wood planks
+    float pl = fract(q.y * 4.0);
+    shade -= step(pl, .07) * .16;
+    shade += (hh(vec2(floor(q.y * 4.0), floor(q.x * 2.0))) - .5) * .10 + (n1 - .5) * .05;
+  } else {
+    shade += (n1 - .5) * .08 + (n2 - .5) * .05;
+  }
+  if (!top) shade *= mix(.80, 1.0, smoothstep(0.0, .45, vMapUv.y));
+  diffuseColor.rgb *= shade;
+  if (flower.x >= 0.0) diffuseColor.rgb = flower * .85;
+}`);
 }
 
 /** Soft elliptical blob — classic HD-2D ground shadow. */
@@ -289,26 +337,41 @@ function makeCritterSprite(kind, pet, frame, sheared) {
   return t;
 }
 
+// Final pass: tilt-shift miniature blur (top/bottom of the screen), warm grade, soft vignette, then linear -> sRGB.
+// (The composer works in linear light; without the encode step at the end everything on screen came out too dark.)
 const VignetteShader = {
   uniforms: {
     tDiffuse: { value: null },
-    offset: { value: 1.2 },
-    darkness: { value: 0.97 },
+    res: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
+    blur: { value: 3.4 },
   },
   vertexShader: `
     varying vec2 vUv;
     void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }
   `,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float offset; uniform float darkness; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform vec2 res; uniform float blur; varying vec2 vUv;
+    vec3 oetf(vec3 c){ c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c)); }
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
-      vec2 uv = (vUv - 0.5) * vec2(offset);
-      float v = smoothstep(0.95, 1.6, dot(uv, uv));
-      c.rgb = mix(c.rgb, c.rgb * darkness, v * 0.35);
-      // gentle lift so the farm stays readable
-      c.rgb = c.rgb * 1.06 + 0.02;
-      gl_FragColor = c;
+      float d = abs(vUv.y - 0.46) * 2.0;
+      float rad = smoothstep(0.5, 1.0, d) * blur;
+      if (rad > 0.35) {
+        vec3 s = c.rgb; float w = 1.0;
+        for (int i = 0; i < 8; i++) {
+          float a = float(i) * 0.785398 + 0.4;
+          vec2 o = vec2(cos(a), sin(a)) * res;
+          s += texture2D(tDiffuse, vUv + o * rad).rgb; s += texture2D(tDiffuse, vUv + o * rad * 0.5).rgb; w += 2.0;
+        }
+        c.rgb = s / w;
+      }
+      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(vec3(l), c.rgb, 1.14);                 // richer colour
+      c.rgb *= vec3(1.04, 1.0, 0.93);                    // warm sunlight
+      vec2 uv = (vUv - 0.5);
+      float v = smoothstep(0.25, 0.85, dot(uv, uv) * 2.4);
+      c.rgb *= 1.0 - v * 0.28;                           // vignette
+      gl_FragColor = vec4(oetf(c.rgb), 1.0);
     }
   `,
 };
@@ -337,14 +400,14 @@ class View {
     this.camera.up.set(0, 1, 0);
 
     // warmer key + cooler fill so blob shadows read like HD-2D daylight
-    this.hemi = new THREE.HemisphereLight(0xfff4e8, 0x9ecf90, 1.15);
+    this.hemi = new THREE.HemisphereLight(0xfff1dc, 0x8fb878, 0.85);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffe8c8, 1.35);
+    this.sun = new THREE.DirectionalLight(0xffe2b8, 1.5);
     this.sun.position.set(-10, 28, 10);   // light from the upper-left of the default view → shadows fall to the right
     this.sun.castShadow = false;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.28));
 
     this.staticRoot = new THREE.Group();
     this.scene.add(this.staticRoot);
@@ -489,9 +552,11 @@ class View {
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // tiny bloom only — heavy DOF made the whole farm unreadable
-    this._bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.08, 0.4, 0.92);
+    this._bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.2, 0.55, 0.82);
     this.composer.addPass(this._bloom);
-    this.composer.addPass(new ShaderPass(VignetteShader));
+    this._fx = new ShaderPass(VignetteShader);
+    this._fx.uniforms.res.value.set(1 / w, 1 / h);
+    this.composer.addPass(this._fx);
   }
 
   setSize(w, h, pr) {
