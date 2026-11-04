@@ -428,6 +428,8 @@
     piece(Vox.plantBoxes(cat.SEED_BY.pumpkin, 3, false), S.x - .5, S.y + S.h + .1, .6);
     piece(Vox.plantBoxes(cat.SEED_BY.sunflower, 3, false), S.x + S.w + .5, S.y + S.h + .1, .6);
   })();
+  // land post sits just outside the lot's north fence (never over a crop), beside the name label
+  const postPos = o => ({ x: o.x + 1, z: o.y - .6 });
   (function buildPOIs() {
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
@@ -453,11 +455,9 @@
       piece(tree, P.x + 1.2, P.y + 1.5, 1.2); piece(tree, P.x + 8.5, P.y + 5.2, 1.2);
     }
     WD.lands.forEach((o, i) => {
-      if (o.npc) {
-        // solid base/porch always; walls+roof drawn each frame (fade when inside)
-        piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
-        piece(Vox.landPost(), o.x + .35, o.y + LS - .4, 1.0);
-      } else piece(Vox.landPost(), o.x + .35, o.y + .35, 1.0);
+      // solid base/porch always; walls+roof drawn each frame (fade when inside)
+      if (o.npc) piece(Vox.modelHomeBase(), o.x + LS / 2, o.y + LS / 2 - .4, 1.15);
+      const pp = postPos(o); piece(Vox.landPost(), pp.x, pp.z, 1.0);
     });
   })();
   const npcLot = WD.lands.find(o => o.npc) || null;
@@ -475,10 +475,11 @@
     // shop (tall building): test a few heights
     for (const Y of [.3, 1, 1.6]) { const g = view.pick(bx, by, Y); if (g.x > WD.shop.x - .05 && g.x < WD.shop.x + WD.shop.w + .05 && g.z > WD.shop.y - .05 && g.z < WD.shop.y + WD.shop.h + .05) return { shop: true }; }
     const g0 = view.pick(bx, by, 0);
-    // land posts (NW corner of each plot)
+    // land posts (outside the north fence of each plot)
     for (let i = 0; i < WD.lands.length; i++) {
       const o = WD.lands[i];
-      if (Math.hypot(g0.x - (o.x + .35), g0.z - (o.y + .35)) < .7) return { post: i };
+      const pp = postPos(o);
+      if (Math.hypot(g0.x - pp.x, g0.z - pp.z) < .7) return { post: i };
     }
     // POIs (stalls / pens / pet shop / bushes / park)
     for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
@@ -1110,8 +1111,7 @@
     // labels (crisp text on a full-resolution overlay)
     WD.lands.forEach((o, i) => {
       const L = lands[i]; if (!L) return;
-      const mid = [[o.x + 4, o.y], [o.x + 4, o.y + LS], [o.x, o.y + 4], [o.x + LS, o.y + 4]];
-      let far = null; for (const [mx, mz] of mid) { const s = toPage(mx, 0, mz); if (!far || s[2] > far[2]) far = s; }
+      const far = toPage(o.x + LS / 2 + 1, 0, o.y - .6);   // pinned next to the post
       if (far[0] < -100 || far[0] > vw + 100 || far[1] < -50 || far[1] > vh + 50) return;
       const meta = WD.lands[i] || {};
       const farmIdx = (!meta.expand && !meta.house) ? (i + 1) : null;
@@ -1134,7 +1134,7 @@
     if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
-    WD.lands.forEach((o, i) => { const p = toPage(o.x + .35, 1.15, o.y + .35); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
+    WD.lands.forEach((o, i) => { const pp = postPos(o), p = toPage(pp.x, 1.15, pp.z); if (p[0] > -20 && p[0] < vw + 20) tag('Post ' + (i + 1), p[0], p[1], '#fff8e1'); });
     for (const p of list) { const s = toPage(p.rx / TILE, 1.85, p.ry / TILE); tag(p.n, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 8); }
     { const s = toPage(self.x / TILE, 1.85, self.y / TILE); tag(me.name, s[0], s[1], '#ffe066'); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 8); }
 
