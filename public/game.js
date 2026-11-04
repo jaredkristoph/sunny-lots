@@ -991,7 +991,7 @@
     }
     if (lab.width !== Math.round(vw * dpr) || lab.height !== Math.round(vh * dpr)) { lab.width = Math.round(vw * dpr); lab.height = Math.round(vh * dpr); }
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.clearRect(0, 0, vw, vh);
-    if (!started) { view.prep(); view.clear('#7ec96a'); return; }
+    if (!started) { view.prep(); view.clear('#b8e0b0'); return; }
 
     // movement relative to the camera (WASD / arrows / phone stick)
     let ix = 0, iy = 0;
@@ -1017,9 +1017,9 @@
     view.yaw += (yawT - view.yaw) * Math.min(1, dt * 10);
     view.ppt += (zoom - view.ppt) * Math.min(1, dt * 10);
     view.fx += (self.x / TILE - view.fx) * Math.min(1, dt * 9); view.fz += (self.y / TILE - view.fz) * Math.min(1, dt * 9);
-    view.hcf = .55; view.prep(); view.clear('#6fd65a');
+    view.hcf = .55; view.prep(); view.clear('#b8e0b0');
 
-    // ground — bright FarmVille-style lime grass + warm plot floors
+    // ground — soft pastel mint grass + warm creamy floors
     const cs = [view.pick(0, 0, 0), view.pick(bw, 0, 0), view.pick(0, bh, 0), view.pick(bw, bh, 0)];
     const x0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.x))) - 1), x1 = Math.min(WD.width - 1, Math.ceil(Math.max(...cs.map(c => c.x))) + 1);
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
@@ -1027,11 +1027,11 @@
       const chk = (tx + tz) & 1; let col;
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
-      if (inPark(tx, tz)) col = chk ? '#9be86a' : '#86d854';
-      else if (houseFloor) col = chk ? '#efd7a0' : '#e0c48a'; // warm wood / house flooring
-      else if (li >= 0) col = chk ? '#b6ef5c' : '#a6e34e';
-      else if (isMargin(tx, tz)) col = chk ? '#7ed85a' : '#6eca4c';
-      else col = chk ? '#e4dfc8' : '#d8d3bc';
+      if (inPark(tx, tz)) col = chk ? '#c8efc0' : '#b8e6b0';
+      else if (houseFloor) col = chk ? '#f5e6c8' : '#ead9b4'; // warm cream wood
+      else if (li >= 0) col = chk ? '#d4f2b8' : '#c6eaa8';
+      else if (isMargin(tx, tz)) col = chk ? '#b5e0a8' : '#a8d69c';
+      else col = chk ? '#efe8d8' : '#e4dcc8';
       view.quad(tx, tz, tx + 1, tz + 1, 0, col);
     }
     // land floors: soil under plants, house planks, faint grid on my land
@@ -1052,8 +1052,8 @@
       for (const k in L.tiles) {
         const tile = L.tiles[k]; if (tile.type !== 'plant') continue;
         const [lx, ly] = k.split(',').map(Number);
-        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0, '#9a6b3c');
-        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0, '#7e5530');
+        view.quad(o.x + lx + .05, o.y + ly + .05, o.x + lx + .95, o.y + ly + .95, 0, '#d2b48c');
+        for (const f of [.2, .5, .8]) view.quad(o.x + lx + .1, o.y + ly + f - .04, o.x + lx + .9, o.y + ly + f + .04, 0, '#c4a47a');
       }
     });
     const [mbx, mby] = toBuf(mouse.x, mouse.y); const hp = pickAt(mbx, mby);

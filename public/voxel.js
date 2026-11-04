@@ -18,13 +18,13 @@ const Vox = (() => {
     if (!v) { const [r, g, b] = parse(hex); const cl = x => Math.max(0, Math.min(255, Math.round(x * f))); v = 'rgb(' + cl(r) + ',' + cl(g) + ',' + cl(b) + ')'; faceCache.set(key, v); }
     return v;
   }
-  // FarmVille-ish cel bands: top / lit / side / shade
+  // Soft pastel cel bands — gentle lift, no harsh shade
   function celFace(hex, dl, isTop) {
-    const band = isTop ? 1.12 : dl > .45 ? 1.02 : dl > .05 ? .78 : .55;
+    const band = isTop ? 1.1 : dl > .4 ? 1.02 : dl > 0 ? .92 : .82;
     return face(hex, band);
   }
-  const LIGHT = [-.45, .85, .28];
-  const OUTLINE = '#2a1a0a';
+  const LIGHT = [-.35, .9, .25];
+  const OUTLINE = '#d4c4b0';
 
   const mk = () => { const a = []; a.add = (x, y, z, w, h, d, c, al) => { a.push({ x, y, z, w, h, d, c, a: al }); return a; }; return a; };
 
@@ -70,8 +70,8 @@ const Vox = (() => {
       if (mxx < 0 || mnx > this.W || mxy < 0 || mny > this.H) return;
       ctx.beginPath(); ctx.moveTo(P[0], P[1]); ctx.lineTo(P[2], P[3]); ctx.lineTo(P[4], P[5]); ctx.lineTo(P[6], P[7]); ctx.closePath();
       ctx.fillStyle = fill; ctx.fill();
-      const e = edge || 'rgba(42,26,10,.22)';
-      ctx.strokeStyle = e; ctx.lineWidth = Math.max(1, this.ppt * .035); ctx.stroke();
+      const e = edge || 'rgba(180,160,140,.28)';
+      ctx.strokeStyle = e; ctx.lineWidth = Math.max(.8, this.ppt * .022); ctx.stroke();
     }
     // queue a model (array of boxes) at a world position, rotated psi about the Y axis
     add(boxes, ox, oy, oz, psi, r) {
@@ -104,10 +104,10 @@ const Vox = (() => {
         P[i * 2] = sx; P[i * 2 + 1] = sy;
         if (sx < mnx) mnx = sx; if (sx > mxx) mxx = sx; if (sy < mny) mny = sy; if (sy > mxy) mxy = sy;
       }
-      // skip outlines for tiny / distant boxes (perf + less noise)
+      // soft pastel outline — skip tiny/distant boxes
       const span = Math.max(mxx - mnx, mxy - mny);
-      const doOutline = span >= 7 && (b.a === undefined || b.a > .55);
-      const ow = span > 28 ? Math.min(2.4, 1 + this.ppt * .04) : 1;
+      const doOutline = span >= 9 && (b.a === undefined || b.a > .55);
+      const ow = span > 32 ? Math.min(1.5, .75 + this.ppt * .025) : .9;
       if (b.a !== undefined) ctx.globalAlpha = b.a;
       for (let f = 0; f < 5; f++) {
         const fc = FACES[f], n = fc.n;
@@ -118,7 +118,7 @@ const Vox = (() => {
         const c = fc.c;
         ctx.beginPath(); ctx.moveTo(P[c[0] * 2], P[c[0] * 2 + 1]); ctx.lineTo(P[c[1] * 2], P[c[1] * 2 + 1]); ctx.lineTo(P[c[2] * 2], P[c[2] * 2 + 1]); ctx.lineTo(P[c[3] * 2], P[c[3] * 2 + 1]); ctx.closePath();
         ctx.fillStyle = col; ctx.fill();
-        if (doOutline) { ctx.strokeStyle = OUTLINE; ctx.lineWidth = ow; ctx.lineJoin = 'round'; ctx.stroke(); }
+        if (doOutline) { ctx.strokeStyle = OUTLINE; ctx.lineWidth = ow; ctx.lineJoin = 'round'; ctx.globalAlpha = (b.a !== undefined ? b.a : 1) * .7; ctx.stroke(); ctx.globalAlpha = b.a !== undefined ? b.a : 1; }
         else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
       }
       if (b.a !== undefined) ctx.globalAlpha = 1;
@@ -191,14 +191,14 @@ const Vox = (() => {
     }
     // torso
     B.add(0, .38, 0, tw, .32, .24, top.c[0]); decals(B, top.pat, 0, .38, 0, tw, .32, .24, top.c[1]);
-    // big chibi head + face
+    // big chibi head + soft face
     B.add(0, .68, 0, .4, .38, .36, skin);
-    B.add(-.1, .84, .185, .07, .08, .03, '#1a1a1a'); B.add(.1, .84, .185, .07, .08, .03, '#1a1a1a');
-    B.add(-.1, .86, .195, .03, .03, .02, '#fff'); B.add(.1, .86, .195, .03, .03, .02, '#fff');
-    B.add(0, .76, .19, .1, .03, .03, '#c45a3a');
+    B.add(-.1, .84, .185, .07, .08, .03, '#8a7a70'); B.add(.1, .84, .185, .07, .08, .03, '#8a7a70');
+    B.add(-.1, .86, .195, .03, .03, .02, '#fffaf5'); B.add(.1, .86, .195, .03, .03, .02, '#fffaf5');
+    B.add(0, .76, .19, .1, .03, .03, '#e8a090');
     if (f) {
-      B.add(-.14, .78, .185, .07, .04, .03, '#ff8fa3'); B.add(.14, .78, .185, .07, .04, .03, '#ff8fa3');
-      B.add(-.1, .91, .19, .08, .02, .02, '#1a1a1a'); B.add(.1, .91, .19, .08, .02, .02, '#1a1a1a');
+      B.add(-.14, .78, .185, .07, .04, .03, '#ffd0d8'); B.add(.14, .78, .185, .07, .04, .03, '#ffd0d8');
+      B.add(-.1, .91, .19, .08, .02, .02, '#8a7a70'); B.add(.1, .91, .19, .08, .02, .02, '#8a7a70');
     }
     // hair volume
     B.add(0, .98, 0, .42, .12, .4, hc); B.add(0, .92, .18, .42, .1, .06, hc); B.add(0, .7, -.18, .4, .32, .08, hc);
@@ -354,14 +354,14 @@ const Vox = (() => {
     const B = mk();
     B.add(0, 0, 0, .95, .1, .65, '#8a5a2b');
     B.add(0, .1, 0, .88, .55, .58, '#fff4d6');
-    B.add(0, .72, 0, 1.12, .1, .78, '#e03131');
-    B.add(0, .82, 0, .95, .05, .65, '#fff');
-    B.add(-.42, .1, .3, .1, .55, .1, '#7a5230'); B.add(.42, .1, .3, .1, .55, .1, '#7a5230');
-    if (kind === 'lemonade') { B.add(0, .28, .3, .22, .28, .14, '#ffe066'); B.add(0, .55, .3, .14, .1, .14, '#fff'); B.add(0, .22, .36, .08, .08, .04, '#ff922b'); }
-    else if (kind === 'flowers') { [[-.22, .38], [0, .44], [.22, .38]].forEach(([x, y], i) => { B.add(x, y, .32, .12, .12, .12, i === 1 ? '#ff6b6b' : '#ffa8c5'); B.add(x, y - .1, .32, .05, .12, .05, '#2f9e44'); }); }
-    else if (kind === 'craft') { B.add(0, .22, .3, .38, .2, .2, '#ced4da'); B.add(0, .44, .3, .22, .16, .16, '#868e96'); }
-    else if (kind === 'bakery') { B.add(0, .28, .32, .3, .14, .18, '#e8b86d'); B.add(0, .42, .32, .2, .1, .14, '#f4d6a0'); B.add(0, .52, .32, .12, .08, .1, '#fff'); }
-    else { B.add(0, .26, .3, .32, .24, .16, '#4263eb'); B.add(0, .5, .3, .2, .14, .12, '#ffd43b'); }
+    B.add(0, .72, 0, 1.12, .1, .78, '#f2b4b4');
+    B.add(0, .82, 0, .95, .05, .65, '#fffaf0');
+    B.add(-.42, .1, .3, .1, .55, .1, '#c9a88a'); B.add(.42, .1, .3, .1, .55, .1, '#c9a88a');
+    if (kind === 'lemonade') { B.add(0, .28, .3, .22, .28, .14, '#ffe9a8'); B.add(0, .55, .3, .14, .1, .14, '#fffaf0'); B.add(0, .22, .36, .08, .08, .04, '#ffc9a0'); }
+    else if (kind === 'flowers') { [[-.22, .38], [0, .44], [.22, .38]].forEach(([x, y], i) => { B.add(x, y, .32, .12, .12, .12, i === 1 ? '#f7b0c8' : '#ffd0e0'); B.add(x, y - .1, .32, .05, .12, .05, '#8fd9a0'); }); }
+    else if (kind === 'craft') { B.add(0, .22, .3, .38, .2, .2, '#d8dde4'); B.add(0, .44, .3, .22, .16, .16, '#b0b8c4'); }
+    else if (kind === 'bakery') { B.add(0, .28, .32, .3, .14, .18, '#f0d0a0'); B.add(0, .42, .32, .2, .1, .14, '#f8e4c0'); B.add(0, .52, .32, .12, .08, .1, '#fffaf0'); }
+    else { B.add(0, .26, .3, .32, .24, .16, '#a8c4f0'); B.add(0, .5, .3, .2, .14, .12, '#ffe9a8'); }
     return B;
   }
   function penFence(w, h) {
@@ -378,67 +378,67 @@ const Vox = (() => {
   function animalBoxes(kind) {
     const B = mk();
     if (kind === 'chicken') {
-      B.add(0, .14, 0, .26, .22, .24, '#fff'); B.add(0, .34, 0, .2, .14, .2, '#fff');
-      B.add(.14, .24, 0, .12, .1, .1, '#ff922b'); B.add(0, .46, 0, .1, .08, .1, '#e03131');
-      B.add(-.07, .38, .12, .05, .05, .03, '#1a1a1a'); B.add(.05, .38, .12, .05, .05, .03, '#1a1a1a');
-      B.add(-.07, 0, .06, .06, .14, .06, '#ffd43b'); B.add(.07, 0, .06, .06, .14, .06, '#ffd43b');
+      B.add(0, .14, 0, .26, .22, .24, '#fffaf5'); B.add(0, .34, 0, .2, .14, .2, '#fffaf5');
+      B.add(.14, .24, 0, .12, .1, .1, '#ffc9a0'); B.add(0, .46, 0, .1, .08, .1, '#f2a8a8');
+      B.add(-.07, .38, .12, .05, .05, .03, '#8a7a70'); B.add(.05, .38, .12, .05, .05, .03, '#8a7a70');
+      B.add(-.07, 0, .06, .06, .14, .06, '#ffe9a8'); B.add(.07, 0, .06, .06, .14, .06, '#ffe9a8');
     } else if (kind === 'cow') {
-      B.add(0, .22, 0, .5, .34, .3, '#f8f9fa');
-      B.add(-.12, .28, 0, .14, .14, .32, '#212529'); B.add(.16, .3, -.06, .12, .12, .12, '#212529');
-      B.add(-.22, .4, .06, .18, .18, .18, '#f8f9fa'); B.add(-.32, .46, .06, .06, .06, .06, '#ff922b');
-      B.add(-.26, .48, .12, .05, .05, .03, '#1a1a1a'); B.add(-.18, .48, .12, .05, .05, .03, '#1a1a1a');
-      [[-.16, 0], [.16, 0], [-.16, .16], [.16, .16]].forEach(([x, z]) => B.add(x, 0, z, .08, .22, .08, '#212529'));
+      B.add(0, .22, 0, .5, .34, .3, '#faf8f5');
+      B.add(-.12, .28, 0, .14, .14, .32, '#c8c0b8'); B.add(.16, .3, -.06, .12, .12, .12, '#c8c0b8');
+      B.add(-.22, .4, .06, .18, .18, .18, '#faf8f5'); B.add(-.32, .46, .06, .06, .06, .06, '#ffc9a0');
+      B.add(-.26, .48, .12, .05, .05, .03, '#8a7a70'); B.add(-.18, .48, .12, .05, .05, .03, '#8a7a70');
+      [[-.16, 0], [.16, 0], [-.16, .16], [.16, .16]].forEach(([x, z]) => B.add(x, 0, z, .08, .22, .08, '#b0a8a0'));
     } else {
       // fluffy sheep
-      B.add(0, .2, 0, .4, .32, .28, '#fff'); B.add(0, .22, 0, .28, .22, .2, '#f1f3f5');
-      B.add(-.2, .34, 0, .16, .16, .16, '#212529'); B.add(-.26, .4, .04, .05, .05, .05, '#ff922b');
-      B.add(-.24, .42, .1, .04, .04, .03, '#fff'); B.add(-.16, .42, .1, .04, .04, .03, '#fff');
-      B.add(0, .48, -.02, .1, .12, .1, '#adb5bd');
-      [[-.14, 0], [.14, 0], [-.14, .14], [.14, .14]].forEach(([x, z]) => B.add(x, 0, z, .07, .18, .07, '#495057'));
+      B.add(0, .2, 0, .4, .32, .28, '#fffaf5'); B.add(0, .22, 0, .28, .22, .2, '#f5f0ea');
+      B.add(-.2, .34, 0, .16, .16, .16, '#c8c0b8'); B.add(-.26, .4, .04, .05, .05, .05, '#ffc9a0');
+      B.add(-.24, .42, .1, .04, .04, .03, '#fffaf5'); B.add(-.16, .42, .1, .04, .04, .03, '#fffaf5');
+      B.add(0, .48, -.02, .1, .12, .1, '#d0c8c0');
+      [[-.14, 0], [.14, 0], [-.14, .14], [.14, .14]].forEach(([x, z]) => B.add(x, 0, z, .07, .18, .07, '#b8b0a8'));
     }
     return B;
   }
   function petBoxes(kind) {
     const B = mk();
     if (kind === 'pet_dog') {
-      B.add(0, .14, 0, .32, .22, .22, '#d4a574'); B.add(-.18, .24, 0, .16, .16, .16, '#d4a574');
-      B.add(-.22, .32, .08, .05, .05, .04, '#1a1a1a'); B.add(-.14, .32, .08, .05, .05, .04, '#1a1a1a');
-      B.add(-.24, .2, -.02, .1, .08, .05, '#8a5a2b'); B.add(.18, .22, 0, .06, .06, .18, '#d4a574');
-      [[-.1, .08], [.1, .08], [-.1, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .07, .14, .07, '#8a5a2b'));
+      B.add(0, .14, 0, .32, .22, .22, '#e8c9a8'); B.add(-.18, .24, 0, .16, .16, .16, '#e8c9a8');
+      B.add(-.22, .32, .08, .05, .05, .04, '#8a7a70'); B.add(-.14, .32, .08, .05, .05, .04, '#8a7a70');
+      B.add(-.24, .2, -.02, .1, .08, .05, '#d4b090'); B.add(.18, .22, 0, .06, .06, .18, '#e8c9a8');
+      [[-.1, .08], [.1, .08], [-.1, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .07, .14, .07, '#d4b090'));
     } else if (kind === 'pet_cat') {
-      B.add(0, .12, 0, .28, .18, .18, '#868e96'); B.add(-.14, .22, 0, .14, .14, .14, '#868e96');
-      B.add(-.18, .34, -.05, .06, .1, .05, '#868e96'); B.add(-.18, .34, .05, .06, .1, .05, '#868e96');
-      B.add(-.18, .28, .08, .04, .04, .03, '#1a1a1a'); B.add(-.1, .28, .08, .04, .04, .03, '#1a1a1a');
-      B.add(.16, .18, 0, .06, .06, .16, '#adb5bd');
-      [[-.08, .06], [.1, .06], [-.08, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .06, .12, .06, '#495057'));
+      B.add(0, .12, 0, .28, .18, .18, '#c8c4d0'); B.add(-.14, .22, 0, .14, .14, .14, '#c8c4d0');
+      B.add(-.18, .34, -.05, .06, .1, .05, '#c8c4d0'); B.add(-.18, .34, .05, .06, .1, .05, '#c8c4d0');
+      B.add(-.18, .28, .08, .04, .04, .03, '#8a7a70'); B.add(-.1, .28, .08, .04, .04, .03, '#8a7a70');
+      B.add(.16, .18, 0, .06, .06, .16, '#d8d4e0');
+      [[-.08, .06], [.1, .06], [-.08, -.06], [.1, -.06]].forEach(([x, z]) => B.add(x, 0, z, .06, .12, .06, '#b0a8b8'));
     } else {
-      B.add(0, .12, 0, .24, .18, .18, '#fff'); B.add(-.12, .2, 0, .14, .14, .14, '#fff');
-      B.add(-.16, .26, 0, .08, .08, .05, '#ffc9c9'); B.add(-.16, .26, .08, .04, .04, .03, '#1a1a1a'); B.add(-.08, .26, .08, .04, .04, .03, '#1a1a1a');
-      B.add(.14, .16, 0, .06, .06, .12, '#fff');
-      [[-.06, .06], [.08, .06], [-.06, -.06], [.08, -.06]].forEach(([x, z]) => B.add(x, 0, z, .05, .12, .05, '#ffc9c9'));
+      B.add(0, .12, 0, .24, .18, .18, '#fffaf5'); B.add(-.12, .2, 0, .14, .14, .14, '#fffaf5');
+      B.add(-.16, .26, 0, .08, .08, .05, '#ffd0d8'); B.add(-.16, .26, .08, .04, .04, .03, '#8a7a70'); B.add(-.08, .26, .08, .04, .04, .03, '#8a7a70');
+      B.add(.14, .16, 0, .06, .06, .12, '#fffaf5');
+      [[-.06, .06], [.08, .06], [-.06, -.06], [.08, -.06]].forEach(([x, z]) => B.add(x, 0, z, .05, .12, .05, '#ffd0d8'));
     }
     return B;
   }
   function bushBoxes() {
     const B = mk();
-    B.add(0, 0, 0, .55, .38, .55, '#2f9e44'); B.add(0, .22, 0, .44, .32, .44, '#40c057');
-    B.add(.12, .38, .06, .22, .2, .22, '#51cf66'); B.add(-.14, .3, -.12, .18, .16, .18, '#2b8a3e');
-    B.add(.18, .28, -.14, .14, .12, .14, '#37b24d');
+    B.add(0, 0, 0, .55, .38, .55, '#8fd9a0'); B.add(0, .22, 0, .44, .32, .44, '#a8e6b4');
+    B.add(.12, .38, .06, .22, .2, .22, '#c0f0c8'); B.add(-.14, .3, -.12, .18, .16, .18, '#7cc890');
+    B.add(.18, .28, -.14, .14, .12, .14, '#98e0a8');
     return B;
   }
   function shopBox(w, h, d, roof) {
     const B = mk();
-    const roofC = roof || '#e03131';
-    B.add(0, 0, 0, w, h, d, '#fff4d6');
+    const roofC = roof || '#f2b4b4';
+    B.add(0, 0, 0, w, h, d, '#fff8e8');
     B.add(0, h, 0, w + .35, .14, d + .35, roofC);
-    B.add(0, h + .14, 0, w + .1, .08, d + .1, '#fff');
-    B.add(0, .05, d / 2 + .02, .42, .7, .08, '#8a5a2b');
-    B.add(.14, .4, d / 2 + .06, .08, .1, .04, '#ffd43b');
+    B.add(0, h + .14, 0, w + .1, .08, d + .1, '#fffaf0');
+    B.add(0, .05, d / 2 + .02, .42, .7, .08, '#d4b090');
+    B.add(.14, .4, d / 2 + .06, .08, .1, .04, '#ffe9a8');
     [[-w * .28, .55], [w * .28, .55]].forEach(([x, y]) => {
-      B.add(x, y, d / 2, .5, .42, .06, '#8a5a2b');
-      B.add(x, y + .04, d / 2 + .04, .4, .32, .04, '#9ec9e8');
+      B.add(x, y, d / 2, .5, .42, .06, '#d4b090');
+      B.add(x, y + .04, d / 2 + .04, .4, .32, .04, '#c8e0f0');
     });
-    B.add(0, h * .55, -d / 2, w * .55, .35, .08, '#c92a2a');
+    B.add(0, h * .55, -d / 2, w * .55, .35, .08, '#f0c0c0');
     return B;
   }
   function slideBoxes() {
@@ -481,7 +481,7 @@ const Vox = (() => {
   function modelHomeShell(alpha) {
     const B = mk();
     const a = alpha == null ? 1 : alpha;
-    const wall = '#fff8e7', trim = '#fff', roof = '#c92a2a', glass = '#9ec9e8', wood = '#8a5a2b';
+    const wall = '#fffaf0', trim = '#fffaf5', roof = '#f2b4b4', glass = '#c8e0f0', wood = '#d4b090';
     // walls — cream barn cottage
     B.add(0, .2, -2.25, 5.5, 1.65, .24, wall, a);
     B.add(-2.65, .2, -.2, .24, 1.65, 4.3, wall, a);
