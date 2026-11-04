@@ -66,7 +66,7 @@
   const iconCache = {};
   const iconURL = (key, fn) => iconCache[key] || (iconCache[key] = fn().toDataURL());
   const plantIcon = (sd, gold) => h('img', { src: iconURL('p' + sd.id + gold, () => Vox.renderIcon(Vox.plantBoxes(sd, 3, gold), { w: 64, h: 64, ppt: 48, hcf: .86 })) });
-  const furnIcon = f => h('img', { src: iconURL('f' + f.id, () => { const m = Vox.furnModel(f); return Vox.renderIcon(m.boxes.concat(m.dyn ? m.dyn(.5) : []), { w: 64, h: 64, ppt: 46, psi: fpsiFor(.78), hcf: .86 }); }) });
+  const furnIcon = f => h('img', { src: iconURL('f' + f.id, () => { const m = Vox.furnModel(f); return Vox.renderIcon(m.boxes.concat(m.dyn ? m.dyn(.5) : []), f.size ? { w: 64, h: 64, ppt: 13, psi: fpsiFor(.78), hcf: .9 } : { w: 64, h: 64, ppt: 46, psi: fpsiFor(.78), hcf: .86 }); }) });
   function clothIcon(it) {
     const a = { ...me.avatar, [it.slot]: it.id };
     return h('img', { src: iconURL('c' + [it.id, a.gender, a.skin, a.hairColor, a.top, a.bottom, a.shoes, a.hat].join('|'), () => spriteCanvas(a, 2, 0)), style: 'width:64px;height:80px;image-rendering:pixelated' });
@@ -558,10 +558,12 @@
     for (let i = 0; i < lands.length; i++) {
       const o = WD.lands[i], L = lands[i];
       for (const k in L.tiles) {
-        const tile = L.tiles[k], [lx, ly] = k.split(',').map(Number), wx = o.x + lx + .5, wz = o.y + ly + .5;
+        const tile = L.tiles[k]; if (tile.type === 'part') continue;
+        const [lx, ly] = k.split(',').map(Number), sz = tile.type === 'furn' ? ((cat.FURN_BY[tile.id] || {}).size || 1) : 1, hf = sz > 1 ? sz / 2 - .1 : .4;
+        const wx = o.x + lx + sz / 2, wz = o.y + ly + sz / 2;
         const H = tile.type === 'furn' ? (Vox.furnModel(cat.FURN_BY[tile.id] || { shape: 'stool', v: 0, pal: ['#ccc', '#aaa', '#888'] }).h) : plantH(tile);
         let mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
-        for (const [a, y, b] of [[-.4, 0, -.4], [.4, 0, -.4], [.4, 0, .4], [-.4, 0, .4], [-.4, H, -.4], [.4, H, -.4], [.4, H, .4], [-.4, H, .4]]) { const s = view.toScreen(wx + a, y, wz + b); mnx = Math.min(mnx, s[0]); mxx = Math.max(mxx, s[0]); mny = Math.min(mny, s[1]); mxy = Math.max(mxy, s[1]); }
+        for (const [a, y, b] of [[-hf, 0, -hf], [hf, 0, -hf], [hf, 0, hf], [-hf, 0, hf], [-hf, H, -hf], [hf, H, -hf], [hf, H, hf], [-hf, H, hf]]) { const s = view.toScreen(wx + a, y, wz + b); mnx = Math.min(mnx, s[0]); mxx = Math.max(mxx, s[0]); mny = Math.min(mny, s[1]); mxy = Math.max(mxy, s[1]); }
         if (bx >= mnx && bx <= mxx && by >= mny && by <= mxy) { const d = view.toScreen(wx, 0, wz)[2]; if (!best || d < best.d) best = { i, lx, ly, d }; }
       }
     }
@@ -623,7 +625,8 @@
     if (L.owner !== myName) {
       // view others' crop progress (read-only) — never mutate their tiles
       if (hit.lx != null) {
-        const tile = L.tiles[hit.lx + ',' + hit.ly];
+        let tile = L.tiles[hit.lx + ',' + hit.ly];
+        if (tile && tile.type === 'part') tile = L.tiles[tile.k];
         if (tile && tile.type === 'plant') return viewOtherCrop(L.owner, tile);
         if (tile && tile.type === 'furn') return openModal(L.owner + "'s " + ((cat.FURN_BY[tile.id] || {}).name || 'decor'), () => h('div', { class: 'center' }, furnIcon(cat.FURN_BY[tile.id] || { id: 'x', shape: 'stool', v: 0, pal: ['#ccc', '#aaa', '#888'] }), h('div', { class: 'muted' }, 'Looking only.')));
       }
@@ -656,11 +659,17 @@
 
   // ---------- land tile menus ----------
   function tileMenu(land, tx, ty) {
-    const key = tx + ',' + ty, tile = lands[land].tiles[key];
+    let key = tx + ',' + ty, tile = lands[land].tiles[key];
+    if (tile && tile.type === 'part') { key = tile.k; [tx, ty] = key.split(',').map(Number); tile = lands[land].tiles[key]; }
     if (!tile) return plantMenu(land, tx, ty);
     if (tile.type === 'furn') {
       const f = cat.FURN_BY[tile.id];
-      return openModal(f.name, () => h('div', { class: 'center' }, furnIcon(f), h('button', { class: 'btn', onclick: () => { send({ t: 'pickup', land, tx, ty }); closeModal(); } }, 'Pick up (back to bag)')));
+      return openModal(f.name, () => h('div', { class: 'center' }, furnIcon(f),
+        f.size ? h('div', { class: 'muted' }, 'Takes up ' + f.size + '×' + f.size + ' tiles') : null,
+        h('div', { class: 'row', style: 'justify-content:center;gap:8px;margin-top:8px' },
+          h('button', { class: 'btn green', onclick: () => send({ t: 'rotate', land, tx, ty }) }, '🔄 Rotate'),
+          h('button', { class: 'btn', onclick: () => { send({ t: 'pickup', land, tx, ty }); closeModal(); } }, 'Pick up (back to bag)')),
+        h('div', { class: 'muted', style: 'margin-top:6px' }, 'Rotate turns it a quarter-turn each tap.')));
     }
     const sd = cat.SEED_BY[tile.seed], total = growMs(sd);
     if (now() >= tile.at + total) { send({ t: 'harvest', land, tx, ty }); return; }
@@ -699,7 +708,7 @@
         const ent = cat.FURNITURE.filter(f => me.furniture[f.id] > 0);
         if (!ent.length) { b.append(h('div', { class: 'muted' }, 'No decor yet. Buy doors, gates, walls, TVs & more at the shop 🏪.')); return b; }
         const g = h('div', { class: 'grid' });
-        ent.forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, '×' + me.furniture[f.id]), h('button', { class: 'btn sm green', onclick: () => { send({ t: 'place', land, tx, ty, furn: f.id }); closeModal(); } }, 'Place'))));
+        ent.forEach(f => g.append(h('div', { class: 'item' }, furnIcon(f), h('div', { class: 'nm' }, f.name), h('div', { class: 'muted' }, '×' + me.furniture[f.id] + (f.size ? ' · ' + f.size + '×' + f.size : '')), h('button', { class: 'btn sm green', onclick: () => { send({ t: 'place', land, tx, ty, furn: f.id }); closeModal(); } }, 'Place'))));
         b.append(g);
       }
       return b;
@@ -1354,8 +1363,14 @@
     lands.forEach((L, i) => {
       const o = WD.lands[i];
       for (const k in L.tiles) {
-        const tile = L.tiles[k], [lx, ly] = k.split(',').map(Number), wx = o.x + lx + .5, wz = o.y + ly + .5;
-        if (tile.type === 'furn') { const m = Vox.furnModel(cat.FURN_BY[tile.id]); view.add(m.dyn ? m.boxes.concat(m.dyn(t)) : m.boxes, wx, 0, wz, fpsi, .9); }
+        const tile = L.tiles[k]; if (tile.type === 'part') continue;
+        const [lx, ly] = k.split(',').map(Number), fd = tile.type === 'furn' ? cat.FURN_BY[tile.id] : null, sz = (fd && fd.size) || 1, wx = o.x + lx + sz / 2, wz = o.y + ly + sz / 2;
+        if (tile.type === 'furn') {
+          const m = Vox.furnModel(fd);
+          // models are authored facing +z; the camera sits on the +z side, so psi 0 shows the front. Unrotated pieces turn to face the camera; rotated ones keep a fixed facing.
+          const psi = tile.rot == null ? fpsi + PI : tile.rot * PI / 2;
+          view.add(m.dyn ? m.boxes.concat(m.dyn(t)) : m.boxes, wx, 0, wz, psi, sz > 1 ? 1 : .9);
+        }
         else {
           const sd = cat.SEED_BY[tile.seed], p = (now() - tile.at) / growMs(sd), st = Vox.plantStage(p);
           let B = Vox.plantBoxes(sd, st, tile.gold);

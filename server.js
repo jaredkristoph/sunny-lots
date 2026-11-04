@@ -513,20 +513,45 @@ wss.on('connection', ws => {
       }
       case 'place': {
         if (!actLand || !tileOK || !ownsLand(u, landIdx)) return err('You can only decorate your own land.');
-        const k = m.tx + ',' + m.ty;
-        if (actLand.tiles[k]) return err('That spot is taken.');
-        if (!C.FURN_BY[m.furn] || !(u.furniture[m.furn] > 0)) return err("You don't own that.");
+        const f = C.FURN_BY[m.furn];
+        if (!f || !(u.furniture[m.furn] > 0)) return err("You don't own that.");
+        const rot = Number.isInteger(m.rot) ? (m.rot & 3) : undefined;
+        const size = f.size || 1;
+        let ax = m.tx, ay = m.ty;
+        if (size > 1) {
+          // find a size×size footprint that covers the clicked tile and is entirely free + owned
+          let found = false;
+          for (let dy = 0; dy < size && !found; dy++) for (let dx = 0; dx < size && !found; dx++) {
+            const x0 = m.tx - dx, y0 = m.ty - dy; let good = true;
+            for (let y = y0; y < y0 + size && good; y++) for (let x = x0; x < x0 + size; x++) if (!relOwned(actLand, x, y) || actLand.tiles[x + ',' + y]) { good = false; break; }
+            if (good) { ax = x0; ay = y0; found = true; }
+          }
+          if (!found) return err('Needs a free ' + size + '×' + size + ' area of your land.');
+        } else if (actLand.tiles[m.tx + ',' + m.ty]) return err('That spot is taken.');
         u.furniture[m.furn]--; if (!u.furniture[m.furn]) delete u.furniture[m.furn];
-        setTile(landIdx, k, { type: 'furn', id: m.furn });
+        const anchor = ax + ',' + ay;
+        setTile(landIdx, anchor, rot === undefined ? { type: 'furn', id: m.furn } : { type: 'furn', id: m.furn, rot });
+        if (size > 1) for (let y = ay; y < ay + size; y++) for (let x = ax; x < ax + size; x++) if (x !== ax || y !== ay) setTile(landIdx, x + ',' + y, { type: 'part', k: anchor });
         sendMe(c);
+        break;
+      }
+      case 'rotate': {
+        if (!actLand || !tileOK || !ownsLand(u, landIdx)) return;
+        let k = m.tx + ',' + m.ty, tile = actLand.tiles[k];
+        if (tile && tile.type === 'part') { k = tile.k; tile = actLand.tiles[k]; }
+        if (!tile || tile.type !== 'furn') return;
+        setTile(landIdx, k, Object.assign({}, tile, { rot: (((tile.rot == null ? 0 : tile.rot) + 1) & 3) }));
         break;
       }
       case 'pickup': {
         if (!actLand || !tileOK || !ownsLand(u, landIdx)) return;
-        const k = m.tx + ',' + m.ty, tile = actLand.tiles[k];
+        let k = m.tx + ',' + m.ty, tile = actLand.tiles[k];
+        if (tile && tile.type === 'part') { k = tile.k; tile = actLand.tiles[k]; }
         if (!tile || tile.type !== 'furn') return;
+        const size = (C.FURN_BY[tile.id] || {}).size || 1;
         u.furniture[tile.id] = (u.furniture[tile.id] || 0) + 1;
-        setTile(landIdx, k, null);
+        const [ax, ay] = k.split(',').map(Number);
+        for (let y = ay; y < ay + size; y++) for (let x = ax; x < ax + size; x++) setTile(landIdx, x + ',' + y, null);
         sendMe(c);
         break;
       }

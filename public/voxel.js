@@ -436,7 +436,7 @@ const Vox = (() => {
       B.add(-.2, .06, .1, .1, .12, .1, '#4e7a34'); B.add(-.24, .1, .08, .06, .1, .06, '#6fae48'); B.add(-.15, .06, .16, .05, .06, .05, '#f06595');   // grass tuft + flower
     },
     totem(B, moss, mint, dark) {
-      const stone = '#8b929b', stoneD = '#6b727c', eye = '#1f2328';
+      const stone = '#c3cad2', stoneD = '#a2abb5', eye = '#2a3038';
       B.add(0, 0, 0, .5, .24, .44, stoneD); B.add(0, .24, 0, .44, .04, .4, stone);                                                  // base
       B.add(-.1, .08, .225, .07, .07, .02, eye); B.add(.1, .08, .225, .07, .07, .02, eye); B.add(0, .13, .225, .18, .04, .02, eye);   // carved face (bottom)
       B.add(0, .28, 0, .4, .26, .36, stone); B.add(-.08, .4, .185, .08, .06, .02, mint); B.add(.08, .4, .185, .08, .06, .02, mint); B.add(0, .32, .185, .14, .05, .02, eye);   // middle tier, glowing eyes
@@ -467,6 +467,47 @@ const Vox = (() => {
     sink(B, m, a, d) { B.add(0, 0, 0, .55, .42, .42, m); B.add(0, .42, 0, .48, .08, .36, a); B.add(0, .5, 0, .34, .06, .24, '#8fd3f4'); B.add(0, .56, -.1, .06, .16, .06, d); B.add(0, .7, -.1, .14, .04, .06, d); },
     stove(B, m, a, d) { B.add(0, 0, 0, .62, .48, .5, m); B.add(0, .48, 0, .58, .04, .46, '#2b2b2b'); [[-.16, -.1], [.16, -.1], [-.16, .1], [.16, .1]].forEach(([x, z]) => B.add(x, .52, z, .16, .03, .16, d)); B.add(.2, .2, .26, .08, .12, .02, a); B.add(-.15, .15, .26, .2, .16, .02, '#1d1a1a'); },
     toilet(B, m, a, d) { B.add(0, 0, .05, .36, .28, .4, m); B.add(0, .28, .05, .32, .08, .34, '#f8f9fa'); B.add(0, .36, -.15, .36, .42, .2, a); B.add(0, .78, -.15, .4, .06, .24, d); },
+    // ---- 4x4-tile showpieces (models span about ±1.9 tiles) ----
+    gazebo(B, m, a, d) {
+      const floor = lighten(m, .18), trim = lighten(a, .25);
+      B.add(0, 0, 0, 3.8, .14, 3.8, darken(floor, .12)); B.add(0, .14, 0, 3.5, .08, 3.5, floor);                       // base + deck
+      for (let i = 0; i < 3; i++) B.add(0, i * .05, 1.95 + (2 - i) * .0, 1.1 - i * .08, .05, .22 + i * .0, lighten(floor, .06));   // front steps
+      B.add(0, 0, 2.03, 1.2, .05, .22, darken(floor, .08));
+      for (const [x, z] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) { B.add(x, .22, z, .24, .1, .24, d); B.add(x, .32, z, .16, 1.9, .16, a); B.add(x, 2.2, z, .24, .1, .24, trim); }   // posts
+      for (const x of [-.8, 0.8]) B.add(x, .66, 1.6, 1.0, .08, .06, a);                                              // front rails (door gap in the middle)
+      B.add(0, .66, -1.6, 3.2, .08, .06, a); B.add(-1.6, .66, 0, .06, .08, 3.2, a); B.add(1.6, .66, 0, .06, .08, 3.2, a);
+      for (let i = -3; i <= 3; i++) { if (Math.abs(i) < 1) continue; B.add(i * .4, .28, 1.6, .05, .38, .05, trim); }
+      for (let i = -3; i <= 3; i++) { B.add(i * .4, .28, -1.6, .05, .38, .05, trim); B.add(-1.6, .28, i * .4, .05, .38, .05, trim); B.add(1.6, .28, i * .4, .05, .38, .05, trim); }
+      B.add(0, 2.3, 0, 4.2, .14, 4.2, d); B.add(0, 2.44, 0, 3.7, .16, 3.7, m); B.add(0, 2.6, 0, 3.0, .16, 3.0, lighten(m, .08)); B.add(0, 2.76, 0, 2.3, .16, 2.3, m);   // roof tiers
+      B.add(0, 2.92, 0, 1.6, .16, 1.6, lighten(m, .08)); B.add(0, 3.08, 0, .9, .16, .9, m); B.add(0, 3.24, 0, .3, .3, .3, '#f2b632'); B.add(0, 3.54, 0, .08, .24, .08, '#f2b632');   // finial
+      B.add(0, .22, -1.1, 2.4, .26, .5, darken(a, .05)); B.add(0, .48, -1.3, 2.4, .36, .1, darken(a, .05));          // bench along the back
+      B.add(0, .22, .2, .9, .34, .9, a); B.add(0, .56, .2, 1.1, .06, 1.1, lighten(a, .2)); B.add(.15, .62, .2, .26, .1, .26, '#ffffff'); B.add(-.25, .62, .1, .2, .14, .2, '#e03131');   // little table + cup + flowers
+      for (const x of [-1.55, 1.55]) { B.add(x, 1.75, 1.6, .1, .3, .1, '#ffe066'); }                                // lanterns
+    },
+    pool(B, m, a, d) {
+      const deck = lighten(m, .3), edge = lighten(m, .5), water = '#52c3ee';
+      for (const [x, z, w, dd] of [[0, 1.8, 4, .4], [0, -1.8, 4, .4], [1.8, 0, .4, 3.2], [-1.8, 0, .4, 3.2]]) { B.add(x, 0, z, w, .22, dd, deck); B.add(x, .22, z, w, .04, dd, edge); }   // deck ring
+      B.add(0, 0, 0, 3.2, .16, 3.2, darken(water, .3)); B.add(0, .16, 0, 3.2, .02, 3.2, water, .9);                  // pool bed + water
+      B.add(0, .08, 0, 3.2, .09, .12, '#ffffff', .35);
+      for (let i = -3; i <= 3; i += 2) B.add(i * .42, .17, 0, .1, .02, 3.1, '#bfeaff', .55);                         // lane shimmer
+      for (const x of [-.5, .5]) { B.add(x, .22, 1.4, .06, .02, .06, '#ffffff'); }
+      B.add(-1.45, .22, 1.35, .05, .55, .05, '#dfe5ea'); B.add(-1.2, .22, 1.35, .05, .55, .05, '#dfe5ea'); B.add(-1.33, .7, 1.35, .3, .04, .05, '#dfe5ea');   // ladder
+      B.add(0, .22, -1.55, .5, .24, .5, d); B.add(0, .46, -1.8, .34, .06, 1.0, a); B.add(0, .5, -.95, .34, .04, .5, a);    // diving board
+      B.add(1.25, .17, -.5, .46, .1, .46, '#ffffff'); B.add(1.25, .17, -.5, .3, .1, .3, '#ffe066');  // float ring
+      B.add(1.7, .26, 1.5, .5, .1, .26, '#ffe9c4'); B.add(1.7, .36, 1.65, .5, .22, .06, '#ffe9c4'); B.add(1.5, .26, 1.5, .08, .1, .26, a);   // lounger
+      B.add(-1.7, .26, -1.5, .08, 1.0, .08, '#a98255'); B.add(-1.7, 1.2, -1.5, .9, .07, .9, a); B.add(-1.7, 1.27, -1.5, .5, .07, .5, lighten(a, .3)); B.add(-1.7, 1.34, -1.5, .1, .1, .1, '#a98255');   // parasol
+    },
+    windmill(B, m, a, d) {
+      const brick = lighten(m, .22), cap = d, door = darken(m, .35);
+      B.add(0, 0, 0, 3.0, .18, 3.0, '#9aa0a6');                                                                        // stone foundation
+      B.add(0, .18, 0, 2.5, .8, 2.5, brick); B.add(0, .98, 0, 2.2, .8, 2.2, lighten(brick, .05)); B.add(0, 1.78, 0, 1.9, .8, 1.9, brick); B.add(0, 2.58, 0, 1.6, .7, 1.6, lighten(brick, .05));   // tapering tower
+      for (const y of [.5, 1.3, 2.1]) B.add(0, y, 0, [2.56, 2.26, 1.96][[.5, 1.3, 2.1].indexOf(y)], .08, [2.56, 2.26, 1.96][[.5, 1.3, 2.1].indexOf(y)], a);   // timber bands
+      B.add(0, 3.28, 0, 1.9, .16, 1.9, cap); B.add(0, 3.44, 0, 1.5, .3, 1.5, m); B.add(0, 3.74, 0, .9, .3, .9, lighten(m, .1)); B.add(0, 4.04, 0, .3, .3, .3, a);   // cap roof
+      B.add(0, .18, 1.27, .8, 1.05, .1, door); B.add(0, 1.0, 1.27, .8, .14, .12, a); B.add(.25, .56, 1.34, .08, .08, .05, '#f2b632');   // door + lintel + handle
+      for (const [x, y] of [[0, 1.5], [0, 2.4]]) { B.add(x, y, 1.0, .5, .5, .08, a); B.add(x, y + .04, 1.04, .38, .42, .05, '#a8d8f0', .9); B.add(x, y + .22, 1.06, .38, .04, .05, a); }   // windows
+      B.add(0, 3.1, .85, .22, .22, .5, '#5a3b22');                                                                      // axle hub block
+      B.add(-1.05, .18, 1.3, .3, .3, .3, '#e8b84a'); B.add(-.8, .18, 1.5, .3, .22, .26, '#d9a43a'); B.add(1.15, .18, 1.35, .24, .24, .24, '#5f8f3f');   // sacks + shrub
+    },
   };
   const furnCache = {};
   function furnModel(f) {
@@ -474,7 +515,7 @@ const Vox = (() => {
     const B = mk(); F[f.shape](B, f.pal[0], f.pal[1], f.pal[2]);
     let top = 0; for (const b of B) if (b.a === undefined || b.a > .5) top = Math.max(top, b.y + b.h);
     const sh = f.shape, v = f.v;
-    const dyn = (sh === 'fireplace' || sh === 'lantern' || sh === 'fountain' || sh === 'aquarium' || sh === 'clock' || sh === 'tv' || v >= 2) ? t => {
+    const dyn = (sh === 'fireplace' || sh === 'lantern' || sh === 'fountain' || sh === 'aquarium' || sh === 'clock' || sh === 'tv' || sh === 'windmill' || sh === 'pool' || (v >= 2 && !f.size)) ? t => {
       const D = mk();
       if (sh === 'fireplace') { const s = Math.sin(t * 7); D.add(-.06, .08, .19, .12, .2 + .06 * s, .06, '#ff7a2a'); D.add(.07, .08, .19, .12, .14 - .05 * s, .06, '#ff7a2a'); D.add(0, .1, .19, .08, .12 + .08 * s, .05, '#ffd24d'); }
       else if (sh === 'fountain') for (let k = 0; k < 4; k++) { const u = (t * .9 + k / 4) % 1; D.add(Math.cos(k * 1.57) * .25 * u, .78 + .5 * Math.sin(u * Math.PI), Math.sin(k * 1.57) * .25 * u, .05, .05, .05, '#bfe8fb'); }
@@ -482,7 +523,13 @@ const Vox = (() => {
       else if (sh === 'clock') D.add(Math.sin(t * 3) * .04, .24, .145, .08, .08, .015, f.pal[1]);
       else if (sh === 'lantern') for (let k = 0; k < 3; k++) { const ang = t * 1.4 + k * 2.1; D.add(.2 + Math.cos(ang) * .22, .38 + Math.sin(ang * 1.3 + k) * .16, Math.sin(ang) * .22, .035, .035, .035, '#fff59d'); }
       else if (sh === 'tv') D.add(Math.sin(t * 2) * .28, .2 + (Math.sin(t * 3.1) + 1) * .14, .075, .06, .06, .01, '#fff');
-      if (v >= 2) { const b = Math.sin(t * 3) * .03; D.add(.28, top + .08 + b, -.2, .07, .07, .07, v === 3 ? '#ffe066' : '#ffffff'); if (v === 3) D.add(-.3, top - .1 - b, .2, .06, .06, .06, '#ffe066'); }
+      if (sh === 'windmill') {
+        const ang = t * .9;
+        for (let k = 0; k < 4; k++) { const th = ang + k * Math.PI / 2, cx = Math.cos(th), cy = Math.sin(th);
+          for (let i = 1; i <= 8; i++) { const r = i * .22; D.add(cx * r, 3.1 + cy * r, 1.2, .16, .16, .1, '#6b4a2b'); if (i > 3) D.add(cx * r - cy * .2, 3.1 + cy * r + cx * .2, 1.22, .22, .22, .05, f.pal[1]); } }
+        D.add(0, 3.0, 1.18, .3, .3, .16, '#f2b632');
+      } else if (sh === 'pool') { for (let k = 0; k < 5; k++) { const u2 = (t * .35 + k * .2) % 1; D.add(-1.2 + k * .6 + Math.sin(t * 2 + k) * .1, .19, -1.2 + u2 * 2.4, .32, .015, .06, '#e8f9ff', .7); } }
+      if (v >= 2 && !f.size) { const b = Math.sin(t * 3) * .03; D.add(.28, top + .08 + b, -.2, .07, .07, .07, v === 3 ? '#ffe066' : '#ffffff'); if (v === 3) D.add(-.3, top - .1 - b, .2, .06, .06, .06, '#ffe066'); }
       return D;
     } : null;
     return (furnCache[f.id] = { boxes: B, h: top, dyn });

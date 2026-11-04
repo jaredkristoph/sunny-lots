@@ -88,6 +88,16 @@ for (const [shape, names, base] of SHAPES) {
   });
 }
 
+// 4x4-tile showpieces: one anchor tile (top-left) carries the piece, the other 15 tiles are {type:'part'} markers
+const BIG_SHAPES = [
+  ['gazebo', ['Garden Gazebo', 'Rose Gazebo', 'Lagoon Gazebo', 'Palace Gazebo'], 2400],
+  ['pool', ['Garden Pool', 'Coral Pool', 'Lagoon Pool', 'Royal Pool'], 3000],
+  ['windmill', ['Farm Windmill', 'Red Windmill', 'Blue Windmill', 'Royal Windmill'], 3600],
+];
+for (const [shape, names, base] of BIG_SHAPES) {
+  names.forEach((name, v) => FURNITURE.push({ id: shape + '_' + v, name, shape, v, pal: PALS[v], size: 4, price: Math.round(base * MULT[v] / 10) * 10 }));
+}
+
 // id, name, slot, price, [color1, color2], pattern/shape, extra
 const CLOTHES = [
   // ---- tops (first two are the free common ones)
@@ -320,7 +330,7 @@ module.exports = {
   GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_GROW, SQUARE_MAX, squarePrice,
   TAP_MIN, TAP_MAX, NPC_HOME_FURN, NPC_HOME_VER,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
-  SHAPE_IDS: SHAPES.map(s => s[0]),
+  SHAPE_IDS: SHAPES.concat(BIG_SHAPES).map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),
   FURN_BY: Object.fromEntries(FURNITURE.map(s => [s.id, s])),
   CLOTH_BY: Object.fromEntries(CLOTHES.map(s => [s.id, s])),
