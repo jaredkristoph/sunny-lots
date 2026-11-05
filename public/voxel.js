@@ -639,6 +639,56 @@ const Vox = (() => {
     else { B.add(0, .26, .3, .32, .24, .16, '#a8c4f0'); B.add(0, .5, .3, .2, .14, .12, '#ffe9a8'); }
     return B;
   }
+
+  // ---- Sunny Bank (4 x 3 tiles): stone columns, pediment, teal dome with a golden top ----
+  function bankBoxes() {
+    const B = mk(), stone = '#efe6d2', stoneD = '#cdbf9f', col = '#fbf7ee', gold = '#f2b632', teal = '#2f8f6a';
+    B.add(0, 0, 0, 4.0, .14, 3.0, '#b9b2a3'); B.add(0, .14, 1.62, 1.9, .1, .36, '#d7cfbd'); B.add(0, .24, 1.52, 1.7, .1, .3, '#e3dccb');   // plinth + steps
+    B.add(0, .14, -.1, 3.5, 1.7, 2.4, stone); B.add(0, .14, -.1, 3.56, .34, 2.46, stoneD);                                               // body + stone band
+    for (const x of [-1.4, -.47, .47, 1.4]) { B.add(x, .24, 1.28, .3, 1.5, .3, col); B.add(x, .24, 1.28, .38, .1, .38, stoneD); B.add(x, 1.7, 1.28, .4, .12, .4, col); }   // front columns
+    B.add(0, 1.84, .95, 3.9, .16, 1.6, stoneD); B.add(0, 2.0, .95, 3.3, .16, 1.4, '#d9ccb0'); B.add(0, 2.16, .95, 2.4, .16, 1.2, stone); B.add(0, 2.32, .95, 1.4, .14, 1.0, '#d9ccb0');   // pediment steps
+    B.add(0, 2.0, 1.66, .34, .34, .06, gold); B.add(0, 2.04, 1.7, .18, .22, .04, '#a8780a');                                              // coin emblem
+    B.add(0, 1.84, -.3, 3.7, .14, 2.2, '#a9967a'); B.add(0, 1.98, -.3, 3.7, .1, .12, stoneD);                                            // main roof + parapet
+    B.add(0, 2.1, -.3, 1.6, .26, 1.6, '#e6dcc4'); B.add(0, 2.36, -.3, 1.3, .28, 1.3, teal); B.add(0, 2.64, -.3, .9, .26, .9, '#38a47c'); B.add(0, 2.9, -.3, .4, .2, .4, gold); B.add(0, 3.1, -.3, .08, .3, .08, gold);   // dome
+    B.add(0, .24, 1.2, .9, 1.2, .1, '#5a3a1c'); B.add(0, .24, 1.26, .78, 1.08, .06, '#7a5230'); B.add(.26, .7, 1.31, .06, .14, .04, gold);  // door
+    for (const x of [-1.6, 1.6]) { B.add(x, .7, 1.2, .55, .75, .08, '#8a7a5a'); B.add(x, .74, 1.25, .45, .65, .05, '#a8d8f0', .9); B.add(x, 1.08, 1.27, .45, .04, .05, '#8a7a5a'); }   // windows
+    B.add(0, 1.4, 1.45, 1.5, .28, .08, '#2f6b4a'); B.add(0, 1.4, 1.5, 1.38, .2, .04, '#3f8a62');                                           // signboard
+    B.add(-1.9, .14, 1.0, .3, .5, .3, '#2f8f4a'); B.add(-1.9, .5, 1.0, .46, .34, .46, '#3fae5a'); B.add(1.9, .14, 1.0, .3, .5, .3, '#2f8f4a'); B.add(1.9, .5, 1.0, .46, .34, .46, '#3fae5a');   // planters
+    return B;
+  }
+  // ---- Orc Market (4 x 3 tiles): wooden stage under a green-striped tent, skull totem, weapon rack, crates ----
+  function orcMarketBoxes() {
+    const B = mk(), wood = '#8a5a2b', woodD = '#5e3d1d', hide = '#4f7a3a', hideL = '#6fa04f', bone = '#f1ead6';
+    B.add(0, 0, 0, 4.0, .14, 3.0, '#6b4a2a'); B.add(0, .14, 0, 3.8, .06, 2.8, wood);                                 // platform
+    for (const [x, z] of [[-1.8, -1.3], [1.8, -1.3], [-1.8, 1.3], [1.8, 1.3]]) B.add(x, .2, z, .2, 1.7, .2, woodD);      // tent posts
+    for (let i = 0; i < 8; i++) { B.add(-1.75 + i * .5, 1.9 + (i < 4 ? i : 7 - i) * .05, 0, .5, .12, 3.0, i % 2 ? hideL : hide); }   // striped roof
+    B.add(0, 2.12, 0, 3.8, .1, .5, '#3d2b14'); B.add(0, 2.22, 0, .14, .28, .14, bone);                               // ridge beam
+    B.add(0, .2, -1.35, 3.6, 1.55, .12, '#3a2a18'); B.add(0, .4, -1.28, 3.3, 1.1, .06, '#5a432a');                   // back wall
+    B.add(-1.2, .9, -1.2, .55, .5, .06, '#a82a2a'); B.add(1.2, .9, -1.2, .55, .5, .06, '#a82a2a'); B.add(-1.2, 1.2, -1.17, .22, .1, .02, '#ffd24d'); B.add(1.2, 1.2, -1.17, .22, .1, .02, '#ffd24d');   // banners
+    B.add(0, .2, .2, 1.5, .5, .8, woodD); B.add(0, .7, .2, 1.6, .08, .9, '#b07a3c');                                 // counter
+    B.add(-.35, .78, .2, .3, .22, .22, '#6fae4b'); B.add(-.35, .98, .2, .3, .06, .3, '#2a2018'); B.add(.3, .78, .2, .22, .18, .22, '#e8c050'); B.add(.3, .96, .2, .1, .1, .1, '#d94a3a');   // wares: orc doll, coin pot
+    B.add(-1.45, .2, .5, .7, .5, .6, '#a47a40'); B.add(-1.45, .7, .5, .74, .06, .64, '#8a5a2b'); B.add(-1.2, .76, .45, .3, .2, .3, '#c9a066');   // crates
+    B.add(1.5, .2, .1, .1, 1.2, .1, '#7a5230'); B.add(1.9, .2, .1, .1, 1.2, .1, '#7a5230'); B.add(1.7, 1.0, .1, .5, .1, .1, '#7a5230');   // weapon rack
+    B.add(1.5, 1.2, .1, .26, .22, .06, '#b8c2cc'); B.add(1.9, 1.2, .1, .26, .22, .06, '#b8c2cc'); B.add(1.7, .5, .1, .06, .4, .06, '#8a949e');
+    B.add(-1.9, .14, -.2, .5, .26, .5, '#d9d2bc'); B.add(-1.9, .4, -.2, .42, .34, .42, bone); B.add(-1.9, .74, -.2, .3, .28, .3, bone);   // skull totem
+    B.add(-1.98, .8, -.04, .06, .08, .03, '#1a1a1a'); B.add(-1.82, .8, -.04, .06, .08, .03, '#1a1a1a'); B.add(-1.9, .55, -.02, .14, .06, .03, '#1a1a1a');
+    B.add(0, 1.55, 1.52, 1.9, .3, .08, '#3d2b14'); B.add(0, 1.58, 1.57, 1.78, .22, .04, '#6b4a2a');                  // signboard
+    for (const [x, z] of [[1.0, 1.7], [1.3, 1.8]]) { B.add(x, .14, z, .3, .24, .3, '#6fae4b'); B.add(x, .38, z, .22, .06, .22, '#4f8636'); }   // bushes
+    return B;
+  }
+  // ---- Super Ace Slots cabinet ----
+  function slotBoxes() {
+    const B = mk(), red = '#c0392b', gold = '#f2b632';
+    B.add(0, 0, 0, .9, .1, .7, '#2b1a0c'); B.add(0, .1, 0, .84, .8, .6, red); B.add(0, .1, .3, .86, .14, .06, gold);               // base + cabinet + trim
+    B.add(0, .9, .02, .86, .5, .62, '#1a1a22'); B.add(0, .95, .33, .74, .4, .04, '#101018');                                      // screen housing
+    [-.24, -.08, .08, .24].forEach((x, i) => { B.add(x, 1.0, .36, .13, .3, .02, ['#ffe9a0', '#fff', '#ff9ab0', '#a8e6ff'][i]); });  // reels glow
+    B.add(0, 1.42, 0, .92, .16, .64, gold); B.add(0, 1.58, 0, .8, .2, .5, '#e8a820');                                              // marquee
+    for (let i = 0; i < 5; i++) B.add(-.36 + i * .18, 1.6, .27, .1, .1, .05, i % 2 ? '#fff6b0' : '#ff6a6a');                       // lights
+    B.add(0, .5, .34, .7, .1, .1, '#2b1a0c'); B.add(0, .6, .36, .5, .06, .04, '#444');                                             // button deck
+    B.add(.5, .3, 0, .06, .5, .06, '#bbb'); B.add(.5, .8, 0, .16, .16, .16, '#e03131');                                            // lever
+    B.add(0, .16, .34, .5, .22, .06, '#111'); B.add(0, .16, .38, .46, .06, .02, gold);                                             // coin tray
+    return B;
+  }
   // casino tables (1.8 wide) — green felt, wooden rails
   function rouletteBoxes() {
     const B = mk();
@@ -815,5 +865,5 @@ const Vox = (() => {
     return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
   }
 
-  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
+  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, bankBoxes, orcMarketBoxes, slotBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

@@ -88,6 +88,9 @@ function ensureUser(u) {
   if (u.houseLand === undefined) u.houseLand = null;
   if (!u.animalNames) u.animalNames = {}; // 'chicken:0' -> 'Clucky'
   if (!u.animalReady) u.animalReady = {}; // 'cow:0' / 'sheep:2' -> last milked / sheared (ms)
+  if (u.orc === undefined) u.orc = null;   // {name, harvest, plant, seed, mode:'follow'|'roam', bought}
+  if (!u.bank) u.bank = { savings: 0, since: Date.now(), loan: 0, loanTaken: 0, loanSince: 0 };
+  if (!Array.isArray(u.playDays)) u.playDays = [];   // distinct YYYY-MM-DD days this player logged in (loan eligibility)
   if (!Array.isArray(u.mail)) u.mail = [];   // [{id, ts, from, subject, body, money, read, claimed}]
   if (!u.animalSex) u.animalSex = {};     // same keys -> 'm' | 'f' (random, fixed at purchase)
   if (!u.animalBorn) u.animalBorn = {};   // 'chicken:0' / 'pet:pet_dog' -> purchase time = "born" date (ms)
@@ -185,7 +188,7 @@ app.get('/api/catalog', (req, res) => {
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
     GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, HOUSE_COST: C.HOUSE_COST,
-    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX,
+    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX, ORC: C.ORC, BANK: C.BANK, SLOT: { SYM: Casino.SL.SYM, PAY: Casino.SL.PAY, BUY_MULT: Casino.SL.BUY_MULT, FREE_SPINS: Casino.SL.FREE_SPINS, BASE_MULT: Casino.SL.BASE_MULT, FREE_MULT: Casino.SL.FREE_MULT, ROWS: Casino.SL.ROWS, COLS: Casino.SL.COLS },
     TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
     ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
@@ -212,7 +215,8 @@ const r2 = n => Math.round(n * 100) / 100;
 /** Estimated net worth = cash + everything owned valued at its shop/sell price. */
 function netWorth(u) {
   ensureUser(u);
-  const b = { cash: r2(u.money || 0), crops: 0, products: 0, seeds: 0, furniture: 0, clothes: 0, animals: 0, land: 0 };
+  settleBank(u);
+  const b = { cash: r2(u.money || 0), bank: r2((u.bank.savings || 0) - (u.bank.loan || 0)), orc: u.orc ? C.ORC.price : 0, crops: 0, products: 0, seeds: 0, furniture: 0, clothes: 0, animals: 0, land: 0 };
   for (const [k, n] of Object.entries(u.crops || {})) { const sd = C.SEED_BY[k.replace('_gold', '')]; if (sd) b.crops += n * sd.sell * (k.endsWith('_gold') ? C.GOLD_MULT : 1); }
   for (const [k, n] of Object.entries(u.products || {})) if (C.PRODUCTS[k]) b.products += n * C.PRODUCTS[k].sell;
   for (const [k, n] of Object.entries(u.seeds || {})) if (C.SEED_BY[k]) b.seeds += n * (C.SEED_BY[k].cost || 0);
@@ -251,7 +255,7 @@ app.post('/api/admin/login', (req, res) => {
 app.get('/api/admin/users', adminOnly, (req, res) => {
   const rows = Object.entries(db.users).map(([key, u]) => {
     const w = netWorth(u);
-    return { name: u.name, cash: w.cash, networth: w.total, breakdown: w, land: u.land, created: u.created || 0, online: online.has(key), unread: (u.mail || []).filter(m => !m.read).length, casinoNet: ['roulette', 'blackjack'].reduce((s, g) => s + (u.casino && u.casino[g] ? u.casino[g].paid - u.casino[g].wagered : 0), 0) };
+    return { name: u.name, cash: w.cash, savings: r2(u.bank.savings || 0), loan: r2(u.bank.loan || 0), orc: !!u.orc, days: (u.playDays || []).length, networth: w.total, breakdown: w, land: u.land, created: u.created || 0, online: online.has(key), unread: (u.mail || []).filter(m => !m.read).length, casinoNet: ['roulette', 'blackjack'].reduce((s, g) => s + (u.casino && u.casino[g] ? u.casino[g].paid - u.casino[g].wagered : 0), 0) };
   });
   rows.sort((a, b) => b.networth - a.networth);
   res.json({ users: rows, totals: { users: rows.length, online: rows.filter(r => r.online).length, cash: r2(rows.reduce((s, r) => s + r.cash, 0)), networth: r2(rows.reduce((s, r) => s + r.networth, 0)) }, sent: (db.adminMailLog || []).slice(0, 30) });
@@ -324,7 +328,7 @@ const meView = u => ({
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
   animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames, animalReady: u.animalReady, animalBorn: u.animalBorn, animalSex: u.animalSex,
-  stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt, mail: u.mail,
+  stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt, mail: u.mail, orc: u.orc, bank: bankView(u),
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
@@ -332,7 +336,7 @@ const sendCasino = (c, game) => send(c.ws, Object.assign({ t: 'casino_info', bj:
 const playerList = () => [...online.values()].map(c => ({
   n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
   animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames, animalReady: c.u.animalReady, animalBorn: c.u.animalBorn, animalSex: c.u.animalSex,
-  e: c.emote || null, es: c.emoteAt || 0,
+  e: c.emote || null, es: c.emoteAt || 0, orc: c.u.orc ? { n: c.u.orc.name, m: c.u.orc.mode } : null,
   land: c.u.land, houseLand: c.u.houseLand, expandLand: c.u.expandLand,
 }));
 const landView = l => ({
@@ -350,6 +354,77 @@ const ownsCloth = (u, id) => {
   if (cl.buyable === false) return u.clothes.includes(id);
   return cl.price === 0 || u.clothes.includes(id);
 };
+
+// ---- shared farming helpers (used by multi-select, the Orc, and the single-tile handlers) ----
+const r2m = n => Math.round(n * 100) / 100;
+function setTileG(li, key, tile) {
+  const L = db.lands[li]; if (!L) return;
+  if (tile) L.tiles[key] = tile; else delete L.tiles[key];
+  touch();
+  broadcast({ t: 'tile', land: li, key, tile: tile || null });
+}
+function plantTile(u, li, k, seedId) {
+  const L = db.lands[li], seed = C.SEED_BY[seedId];
+  if (!L || !seed || L.tiles[k] || !(u.seeds[seedId] > 0)) return false;
+  u.seeds[seedId]--; if (!u.seeds[seedId]) delete u.seeds[seedId];
+  setTileG(li, k, { type: 'plant', seed: seedId, at: Date.now(), gold: Math.random() < C.GOLD_CHANCE });
+  return true;
+}
+function harvestTile(u, li, k) {
+  const L = db.lands[li], tile = L && L.tiles[k];
+  if (!tile || tile.type !== 'plant') return false;
+  const seed = C.SEED_BY[tile.seed];
+  if (!seed || Date.now() < tile.at + growMs(seed)) return false;
+  const key = seed.id + (tile.gold ? '_gold' : '');
+  u.crops[key] = (u.crops[key] || 0) + 1;
+  const st = L.stats || (L.stats = { harvested: 0, growTime: 0, value: 0 });
+  st.harvested += 1; st.growTime += Math.max(0, Date.now() - tile.at); st.value += seed.sell * (tile.gold ? C.GOLD_MULT : 1);
+  setTileG(li, k, null);
+  broadcast({ t: 'land_stats', land: li, stats: st });
+  return true;
+}
+/** every tile key of a farm land: the 8x8 base plus bought squares */
+function landKeys(li) {
+  const L = db.lands[li], out = [];
+  for (let y = 0; y < C.WORLD.landSize; y++) for (let x = 0; x < C.WORLD.landSize; x++) out.push(x + ',' + y);
+  for (const k of Object.keys((L && L.extra) || {})) out.push(k);
+  return out;
+}
+// ---- Sunny Bank: interest accrues continuously (settled lazily) ----
+function settleBank(u, t) {
+  const b = u.bank; t = t || Date.now();
+  const dt = (t - b.since) / 864e5;
+  if (dt < 1 / 1440) return;   // under a minute: wait, so small amounts still accrue
+  if (b.savings > 0) { const base = Math.min(b.savings, C.BANK.saveCap); b.savings += base * (Math.pow(1 + C.BANK.saveDaily, dt) - 1); }
+  if (b.loan > 0) b.loan = Math.min(b.loanTaken * C.BANK.loanCapMult, b.loan * Math.pow(1 + C.BANK.loanDaily, dt));
+  b.since = t;
+}
+const bankView = u => { settleBank(u); const b = u.bank; return { savings: r2m(b.savings), loan: r2m(b.loan), loanTaken: b.loanTaken, days: u.playDays.length, eligible: u.playDays.length >= C.BANK.minDaysPlayed }; };
+// ---- Orc worker: every few seconds harvests ripe crops and replants ----
+function orcWork(u, key) {
+  const o = u.orc; if (!o) return;
+  const lands = [u.land, u.expandLand].filter(x => x != null && db.lands[x]);
+  let acts = 0;
+  if (o.harvest) outer: for (const li of lands) for (const k of Object.keys(db.lands[li].tiles)) {
+    if (acts >= C.ORC.perTick) break outer;
+    if (db.lands[li].tiles[k].type === 'plant' && harvestTile(u, li, k)) acts++;
+  }
+  if (o.plant && acts < C.ORC.perTick) {
+    outerP: for (const li of lands) for (const k of landKeys(li)) {
+      if (acts >= C.ORC.perTick) break outerP;
+      if (db.lands[li].tiles[k]) continue;
+      let sid = o.seed;
+      if (sid === 'any' || !(u.seeds[sid] > 0)) {
+        sid = Object.keys(u.seeds).filter(x => u.seeds[x] > 0 && C.SEED_BY[x]).sort((a, b) => C.SEED_BY[b].sell - C.SEED_BY[a].sell)[0];
+        if (o.seed !== 'any' && !sid) break outerP;
+      }
+      if (!sid) break outerP;
+      if (plantTile(u, li, k, sid)) acts++;
+    }
+  }
+  if (acts) { touch(); const c = online.get(key); if (c) { sendMe(c); send(c.ws, { t: 'orc_work', n: acts }); } }
+}
+setInterval(() => { for (const [key, u] of Object.entries(db.users)) if (u.orc) { try { ensureUser(u); orcWork(u, key); } catch (e) { console.error('orc', e.message); } } }, C.ORC.tickMs);
 
 const rndSex = () => (require('crypto').randomInt(2) ? 'm' : 'f');
 function spawnFor(u) {
@@ -378,6 +453,8 @@ wss.on('connection', ws => {
       const prev = online.get(key);
       if (prev) { send(prev.ws, { t: 'err', msg: 'Logged in from another place.' }); prev.ws.close(); }
       const u = db.users[key];
+      ensureUser(u);
+      { const day = new Date().toISOString().slice(0, 10); if (!u.playDays.includes(day)) { u.playDays.push(day); if (u.playDays.length > 60) u.playDays.shift(); touch(); } }
       const p = spawnFor(u);
       c = { ws, u, key, x: p.x, y: p.y };
       online.set(key, c);
@@ -422,7 +499,7 @@ wss.on('connection', ws => {
         break;
       }
       case 'casino_open': {
-        if (!Casino.info || !['roulette', 'blackjack'].includes(m.game)) return;
+        if (!Casino.info || !['roulette', 'blackjack', 'slots'].includes(m.game)) return;
         sendCasino(c, m.game);
         break;
       }
@@ -785,6 +862,92 @@ wss.on('connection', ws => {
         touch(); sendMe(c); playersDirty = true;
         const who = idxs.length === 1 ? (u.animalNames[kind + ':' + idxs[0]] || ('your ' + a.name.toLowerCase())) : n + ' ' + (kind === 'sheep' ? 'sheep' : 'cows');
         ok(kind === 'cow' ? 'Milked ' + who + ': +' + n + ' milk 🥛' : 'Sheared ' + who + ': +' + n + ' wool ✂️');
+        break;
+      }
+      case 'slots_spin': {
+        if (Date.now() - (c.lastBet || 0) < 700) return;
+        c.lastBet = Date.now();
+        const r = Casino.slotSpin(db, u, Number(m.bet), !!m.buy);
+        if (r.error) return err(r.error);
+        touch();
+        send(ws, { t: 'slots_result', r });
+        const nSteps = (r.base ? r.base.steps.length : 0) + r.free.reduce((a, f) => a + f.steps.length, 0);
+        setTimeout(() => { sendMe(c); sendCasino(c, 'slots'); }, Math.min(60000, 1500 + nSteps * 1400 + (r.free.length ? 2200 : 0)));   // money/stats update once the reels have finished
+        break;
+      }
+      case 'plant_many': {
+        if (!actLand || !ownsLand(u, landIdx)) return err('You can only plant on your own land.');
+        const seed = C.SEED_BY[m.seed]; if (!seed) return;
+        const list = Array.isArray(m.tiles) ? m.tiles.slice(0, 300) : [];
+        let n = 0;
+        for (const t of list) {
+          if (!Array.isArray(t) || !Number.isInteger(t[0]) || !Number.isInteger(t[1]) || !relOwned(actLand, t[0], t[1])) continue;
+          if (!(u.seeds[seed.id] > 0)) break;
+          if (plantTile(u, landIdx, t[0] + ',' + t[1], seed.id)) n++;
+        }
+        if (!n) return err(u.seeds[seed.id] > 0 ? 'Those spots are already taken.' : 'You have no ' + seed.name + ' seeds.');
+        sendMe(c); ok('Planted ' + n + ' ' + seed.name + (n > 1 ? 's' : '') + '.');
+        break;
+      }
+      case 'harvest_many': {
+        const lis = m.all ? [u.land, u.expandLand, u.houseLand].filter(x => x != null && db.lands[x]) : (actLand && ownsLand(u, landIdx) ? [landIdx] : []);
+        if (!lis.length) return err('You can only harvest on your own land.');
+        let n = 0;
+        for (const li of lis) {
+          const L = db.lands[li];
+          const keys = m.all || !Array.isArray(m.tiles) ? Object.keys(L.tiles) : m.tiles.slice(0, 300).filter(t => Array.isArray(t) && Number.isInteger(t[0]) && Number.isInteger(t[1])).map(t => t[0] + ',' + t[1]);
+          for (const k of keys) if (L.tiles[k] && L.tiles[k].type === 'plant' && harvestTile(u, li, k)) n++;
+        }
+        if (!n) return err('Nothing is ready to harvest yet.');
+        sendMe(c); send(ws, { t: 'harvested_many', n }); ok('Harvested ' + n + ' crop' + (n > 1 ? 's' : '') + '!');
+        break;
+      }
+      case 'buy_orc': {
+        if (u.orc) return err('You already have an Orc.');
+        if (u.money < C.ORC.price) return err('An Orc costs $' + C.ORC.price.toLocaleString() + '.');
+        u.money = r2m(u.money - C.ORC.price);
+        u.orc = { name: 'Orc', harvest: true, plant: false, seed: 'any', mode: 'follow', bought: Date.now() };
+        touch(); sendMe(c); playersDirty = true; ok('Your Orc joined the farm! Open its settings to give it jobs.');
+        break;
+      }
+      case 'orc_set': {
+        if (!u.orc) return;
+        const o = u.orc;
+        if (typeof m.harvest === 'boolean') o.harvest = m.harvest;
+        if (typeof m.plant === 'boolean') o.plant = m.plant;
+        if (m.seed === 'any' || C.SEED_BY[m.seed]) o.seed = m.seed;
+        if (m.mode === 'follow' || m.mode === 'roam') o.mode = m.mode;
+        if (typeof m.name === 'string') { const nm = m.name.replace(/[^\p{L}\p{N} '_.!-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 14); o.name = nm || 'Orc'; }
+        touch(); sendMe(c); playersDirty = true;
+        break;
+      }
+      case 'bank_open': { sendMe(c); break; }
+      case 'bank_deposit': case 'bank_withdraw': case 'bank_loan': case 'bank_repay': {
+        if (Date.now() - (c.lastBank || 0) < 250) return;
+        c.lastBank = Date.now();
+        settleBank(u);
+        const b = u.bank;
+        let amt = m.amount === 'all' ? Infinity : Number(m.amount);
+        if (!(amt > 0)) return err('Enter an amount.');
+        if (m.t === 'bank_deposit') {
+          amt = r2m(Math.min(amt, u.money)); if (!(amt > 0)) return err('You have no cash to deposit.');
+          u.money = r2m(u.money - amt); b.savings += amt; ok('Deposited $' + amt.toLocaleString() + '.');
+        } else if (m.t === 'bank_withdraw') {
+          amt = r2m(Math.min(amt, b.savings)); if (!(amt > 0)) return err('Nothing to withdraw.');
+          b.savings = Math.max(0, b.savings - amt); u.money = r2m(u.money + amt); ok('Withdrew $' + amt.toLocaleString() + '.');
+        } else if (m.t === 'bank_loan') {
+          if (u.playDays.length < C.BANK.minDaysPlayed) return err('Loans open after you have played on ' + C.BANK.minDaysPlayed + ' different days (you have ' + u.playDays.length + ').');
+          if (b.loan > 0.005) return err('Repay your current loan first.');
+          amt = Math.floor(amt); if (!(amt >= 1) || amt > C.BANK.loanMax) return err('Loans are $1 – $' + C.BANK.loanMax.toLocaleString() + '.');
+          b.loan = amt; b.loanTaken = amt; b.loanSince = Date.now(); u.money = r2m(u.money + amt); ok('Loan of $' + amt.toLocaleString() + ' approved.');
+        } else {
+          if (!(b.loan > 0.005)) return err('You have no loan.');
+          amt = r2m(Math.min(amt, b.loan, u.money)); if (!(amt > 0)) return err('You have no cash to repay with.');
+          u.money = r2m(u.money - amt); b.loan = Math.max(0, b.loan - amt);
+          if (b.loan < 0.005) { b.loan = 0; b.loanTaken = 0; }
+          ok('Repaid $' + amt.toLocaleString() + '.');
+        }
+        touch(); sendMe(c);
         break;
       }
       case 'mail_read': {

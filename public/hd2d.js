@@ -294,8 +294,45 @@ function makeCharSprite(avatar, cat, frame) {
   return t;
 }
 
+
+/** The Orc worker: a 32x40 pixel sprite (green skin, tusks, leather vest, axe). */
+function makeOrcSprite(frame) {
+  frame = frame | 0;
+  const key = 'orc:f' + frame;
+  if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
+  const c = document.createElement('canvas'); c.width = 32; c.height = 40;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  const px = (x, y, w, hh, col) => { g.fillStyle = col; g.fillRect(x, y, w, hh); };
+  const S = '#6fae4b', SD = '#4f8636', SL = '#8cc95f', OUT = '#26361a', VEST = '#8a5a2b', VESTD = '#6b4423', PANT = '#5b4630', BOOT = '#2d2118';
+  const la = frame === 1 ? -1 : 0, ra = frame === 2 ? -1 : 0;   // leg lift while walking
+  // legs + boots
+  px(10, 25, 5, 9 + la, PANT); px(17, 25, 5, 9 + ra, PANT);
+  px(9, 33 + la, 6, 4, BOOT); px(17, 33 + ra, 6, 4, BOOT); px(9, 36 + la, 6, 1, OUT); px(17, 36 + ra, 6, 1, OUT);
+  // torso: skin chest under a leather vest, belt + buckle
+  px(8, 14, 16, 11, S); px(8, 14, 5, 11, VEST); px(19, 14, 5, 11, VEST); px(13, 15, 6, 9, SL);
+  px(8, 14, 16, 1, VESTD); px(8, 22, 16, 3, '#3a2a1a'); px(14, 22, 4, 3, '#e0b030'); px(15, 23, 2, 1, '#8a6a10');
+  px(10, 17, 2, 1, VESTD); px(20, 17, 2, 1, VESTD); px(10, 19, 2, 1, VESTD); px(20, 19, 2, 1, VESTD);
+  // arms (bracers) + hands
+  px(4, 14, 4, 10, S); px(24, 14, 4, 10, S); px(4, 19, 4, 3, VESTD); px(24, 19, 4, 3, VESTD); px(4, 24, 4, 3, SD); px(24, 24, 4, 3, SD);
+  // axe in the right hand
+  px(28, 12, 2, 16, '#7a5230'); px(27, 8, 5, 5, '#b8c2cc'); px(31, 9, 1, 3, '#e8eef4'); px(27, 8, 5, 1, '#8a949e');
+  // head: big jaw, pointed ears, tusks, brow, eyes, mohawk
+  px(10, 3, 12, 11, S); px(9, 6, 1, 6, S); px(22, 6, 1, 6, S); px(8, 6, 2, 3, S); px(22, 6, 2, 3, S); px(7, 7, 1, 2, SD); px(24, 7, 1, 2, SD);
+  px(10, 11, 12, 3, SD); px(12, 12, 8, 2, S);
+  px(11, 6, 10, 1, SD); px(12, 7, 3, 3, '#ffe08a'); px(17, 7, 3, 3, '#ffe08a'); px(13, 8, 1, 2, '#1a1a1a'); px(18, 8, 1, 2, '#1a1a1a'); px(15, 9, 2, 2, SD);
+  px(12, 11, 2, 4, '#f4f0e0'); px(18, 11, 2, 4, '#f4f0e0'); px(14, 13, 4, 1, '#3a1a1a');
+  px(14, 0, 4, 4, '#2a2018'); px(13, 2, 6, 2, '#3a2c20');
+  // outline touches
+  px(10, 3, 12, 1, OUT); px(10, 3, 1, 8, OUT); px(21, 3, 1, 8, OUT);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  SPRITE_CACHE.set(key, t);
+  return t;
+}
+
 function makeCritterSprite(kind, pet, frame, sheared) {
   frame = frame | 0;
+  if (kind === 'orc') return makeOrcSprite(frame);
   const key = 'cr:' + kind + ':' + !!pet + ':f' + frame + (sheared ? ':s' : '');
   if (SPRITE_CACHE.has(key)) return SPRITE_CACHE.get(key);
   const c = document.createElement('canvas');
@@ -790,4 +827,4 @@ class View {
 
 export { View, makeCharSprite, makeCritterSprite, pixelTex };
 export const HD2D = { View, makeCharSprite, makeCritterSprite, pixelTex };
-window.HD2D = { View, makeCharSprite, makeCritterSprite, pixelTex };
+window.HD2D = { View, makeCharSprite, makeCritterSprite, makeOrcSprite, pixelTex };

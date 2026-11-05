@@ -4,7 +4,7 @@
 const crypto = require('crypto');
 
 const MIN_BET = 50;
-const GAMES = ['roulette', 'blackjack'];
+const GAMES = ['roulette', 'blackjack', 'slots'];
 const RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const rnd = n => crypto.randomInt(n);
 
@@ -182,4 +182,101 @@ function bjDouble(db, u) {
   return { ok: true };
 }
 
-module.exports = { MIN_BET, ensureDb, ensureUser, info, rouletteSpin, rouletteColor, bjDeal, bjHit, bjStand, bjDouble, bjView, handValue };
+
+// ---------- Super-Ace style slots: 5 reels × 4 rows, 1024 ways, cascading wins, golden cards → wilds, free spins, buy bonus ----------
+const SL = {
+  COLS: 5, ROWS: 4,
+  SYM: ['10', 'J', 'Q', 'K', 'A', '♣', '♦', '♥', '♠'],   // 0..8 regular; WILD = 9; SCATTER = 10
+  WILD: 9, SCATTER: 10,
+  // reel weights for 0..8 + scatter (index 9 is never drawn directly; wilds only come from golden cards)
+  W: [22, 20, 18, 16, 14, 12, 9, 7, 5, 0, 2.0],
+  // pay per way as a multiple of the TOTAL bet, for 3 / 4 / 5 reels
+  PAY_RAW: [[.0105, .0350, .1050], [.0140, .0455, .1400], [.0175, .0595, .1925], [.0245, .0840, .2800], [.0350, .1260, .4200], [.0490, .1750, .6300], [.0700, .2800, 1.0500], [.1050, .4200, 1.7500], [.1750, .7000, 3.5000]],
+  PAY: null,
+  GOLD: .055, GOLD_FREE: .16,  // chance a card on reels 2-4 is golden (free spins are much richer)
+  BASE_MULT: [1, 2, 3, 5], FREE_MULT: [2, 4, 6, 10, 15, 25],
+  FREE_SPINS: 10, RETRIGGER: 5, BUY_MULT: 40, MAX_WIN: 5000, MAX_STEPS: 40,
+};
+SL.PAY = SL.PAY_RAW.map(r => r.map(x => Math.round(x * 1.6 * 1e5) / 1e5));   // paytable scaled to ~95% return (see tests)
+const SL_TOTAL = SL.W.reduce((a, b) => a + b, 0);
+function slDraw(col, free) {
+  let r = Math.random() * SL_TOTAL, s = 0;
+  for (; s < SL.W.length; s++) { r -= SL.W[s]; if (r < 0) break; }
+  if (s >= SL.W.length) s = 0;
+  const gold = s < 9 && s !== SL.SCATTER && col >= 1 && col <= 3 && Math.random() < (free ? SL.GOLD_FREE : SL.GOLD);
+  return { s, g: gold ? 1 : 0 };
+}
+const slGrid = free => Array.from({ length: SL.COLS }, (_, c) => Array.from({ length: SL.ROWS }, () => slDraw(c, free)));   // grid[col][row]
+function slEval(grid) {
+  const wins = [];
+  for (let sym = 0; sym < 9; sym++) {
+    let ways = 1, len = 0; const cells = [];
+    for (let c = 0; c < SL.COLS; c++) {
+      const hit = []; for (let r = 0; r < SL.ROWS; r++) { const t = grid[c][r].s; if (t === sym || t === SL.WILD) hit.push([c, r]); }
+      if (!hit.length) break;
+      ways *= hit.length; len++; cells.push(...hit);
+    }
+    if (len >= 3) wins.push({ sym, len, ways, cells, pay: SL.PAY[sym][len - 3] * ways });
+  }
+  return wins;
+}
+const slScatters = grid => { let n = 0; for (const col of grid) for (const t of col) if (t.s === SL.SCATTER) n++; return n; };
+/** One spin with cascades. Returns {steps, total (in multiples of bet), scatters}. */
+function slChain(free) {
+  let grid = slGrid(free); const steps = []; let total = 0, mult = 0;
+  const ladder = free ? SL.FREE_MULT : SL.BASE_MULT;
+  for (let i = 0; i < SL.MAX_STEPS; i++) {
+    const wins = slEval(grid);
+    const snap = grid.map(col => col.map(t => ({ s: t.s, g: t.g })));
+    if (!wins.length) { steps.push({ grid: snap, wins: [], mult: ladder[Math.min(mult, ladder.length - 1)], win: 0 }); break; }
+    const m = ladder[Math.min(mult, ladder.length - 1)];
+    const raw = wins.reduce((a, w) => a + w.pay, 0), win = raw * m;
+    total += win;
+    const gone = new Set(), toWild = new Set();
+    for (const w of wins) for (const [c, r] of w.cells) { const k = c * 10 + r; if (grid[c][r].g && grid[c][r].s !== SL.WILD) toWild.add(k); else gone.add(k); }
+    steps.push({ grid: snap, wins: wins.map(w => ({ sym: w.sym, len: w.len, ways: w.ways, cells: w.cells, pay: w.pay })), mult: m, win, wild: [...toWild], gone: [...gone] });
+    // golden winners become wilds in place; other winners drop out and the column refills from the top
+    for (const k of toWild) { const c = Math.floor(k / 10), r = k % 10; grid[c][r] = { s: SL.WILD, g: 0 }; }
+    for (let c = 0; c < SL.COLS; c++) {
+      const keep = []; for (let r = 0; r < SL.ROWS; r++) if (!gone.has(c * 10 + r)) keep.push(grid[c][r]);
+      const fresh = []; while (fresh.length + keep.length < SL.ROWS) fresh.push(slDraw(c, free));
+      grid[c] = fresh.concat(keep);   // index 0 = top row
+    }
+    mult++;
+  }
+  return { steps, total, scatters: slScatters(grid) };
+}
+/** Whole round: base spin (+ free spins if triggered or bought). All amounts are multiples of the bet until slotSpin converts them. */
+function slRound(buy) {
+  const out = { base: null, free: [], freeSpins: 0, total: 0 };
+  let triggered = !!buy;
+  if (!buy) {
+    out.base = slChain(false); out.total += out.base.total;
+    triggered = out.base.scatters >= 3;
+    if (out.base.scatters >= 3) out.freeSpins = SL.FREE_SPINS + (out.base.scatters - 3) * 2;
+  } else out.freeSpins = SL.FREE_SPINS;
+  if (triggered) {
+    let left = out.freeSpins, played = 0;
+    while (left > 0 && played < 60) {
+      left--; played++;
+      const ch = slChain(true); out.free.push(ch); out.total += ch.total;
+      if (ch.scatters >= 3) { left += SL.RETRIGGER; ch.retrigger = SL.RETRIGGER; }
+      if (out.total >= SL.MAX_WIN) break;
+    }
+  }
+  if (out.total > SL.MAX_WIN) { out.total = SL.MAX_WIN; out.capped = true; }
+  return out;
+}
+function slotSpin(db, u, bet, buy) {
+  ensureUser(u);
+  if (!Number.isInteger(bet) || bet < MIN_BET || bet > 1e7) return { error: 'Minimum bet is $' + MIN_BET + '.' };
+  const cost = buy ? bet * SL.BUY_MULT : bet;
+  if (u.money < cost) return { error: 'Not enough money for that ' + (buy ? 'bonus buy' : 'bet') + '.' };
+  const r = slRound(!!buy);
+  const paid = Math.round(r.total * bet * 100) / 100;
+  u.money = Math.round((u.money - cost + paid) * 100) / 100;
+  record(db, u, 'slots', 1, cost, paid);
+  return { bet, buy: !!buy, cost, paid, net: Math.round((paid - cost) * 100) / 100, base: r.base, free: r.free, freeSpins: r.freeSpins, capped: !!r.capped, mult: r.total };
+}
+
+module.exports = { SL, slRound, slotSpin, MIN_BET, ensureDb, ensureUser, info, rouletteSpin, rouletteColor, bjDeal, bjHit, bjStand, bjDouble, bjView, handValue };

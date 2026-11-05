@@ -64,3 +64,10 @@ Pick a username, the server generates a password and shows it once. There is no 
 - Open `/admin` on your site. Set the `ADMIN_PASSWORD` environment variable on your host (Render → Environment). If it is not set, a temporary random password is printed in the server log on every start.
 - The admin page lists every player with cash and estimated net worth (cash + crops, products, seeds, furniture, clothes, animals/pets, land at shop prices), and can send mail to one player or everyone, optionally with money attached (event rewards).
 - Players see a **📬 Mail** button with a red badge for unread letters and claim attached money from the letter.
+
+## Farm helpers, bank & slots
+- **☑️ Select** (HUD): tap many of your tiles, then plant a seed on all empty ones or harvest all ripe ones (also "Harvest ALL ready").
+- **🧌 Orc Market** ($20,000, one per player): auto-harvests and auto-plants for you; settings for jobs, seed, and follow / roam.
+- **🏦 Sunny Bank**: savings earn 2%/day (first $50k); loans up to $2,000 at 5%/day (capped at 2× borrowed) after playing on 2 different days.
+- **🟢 N online** in the HUD (click for the list).
+- **🎰 Super Ace Slots** in the casino: 1,024 ways, cascading multipliers, golden→wild cards, free spins, Buy Bonus (40× bet). All outcomes are decided by the server.

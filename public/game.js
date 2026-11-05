@@ -32,9 +32,15 @@
     for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(k));
     return e;
   }
+  const toastSeen = new Map();
   function toast(msg, bad) {
+    const nowT = Date.now();
+    if (toastSeen.has(msg) && nowT - toastSeen.get(msg) < 2500) return;     // de-duplicate identical toasts
+    toastSeen.set(msg, nowT);
+    const box = $('#toasts');
+    while (box.children.length >= 4) box.firstChild.remove();
     const t = h('div', { class: 'toast' + (bad ? ' bad' : '') }, msg);
-    $('#toasts').append(t); setTimeout(() => t.remove(), 3200);
+    box.append(t); setTimeout(() => t.remove(), 3200);
   }
 
   // ---------- state ----------
@@ -73,7 +79,11 @@
   }
 
   // ---------- modal system ----------
-  let modalRefresh = null, modalClose = null, modalLocked = false;
+  let modalRefresh = null, modalClose = null, modalLocked = false, modalTimer = 0;
+  function modalTick(fn, ms) {            // one timer per modal; rebuilding never leaks intervals
+    clearInterval(modalTimer); modalTimer = setInterval(fn, ms || 500);
+    modalClose = () => { clearInterval(modalTimer); modalTimer = 0; };
+  }
   function openModal(title, build, opts = {}) {
     closeModal();
     const ov = $('#overlay'); ov.hidden = false; ov.innerHTML = '';
@@ -84,6 +94,7 @@
     modalRefresh();
   }
   function closeModal() {
+    clearInterval(modalTimer); modalTimer = 0;
     if (modalClose) { try { modalClose(); } catch (e) { /* ignore */ } }
     modalClose = null; modalRefresh = null; modalLocked = false;
     $('#overlay').hidden = true; $('#overlay').innerHTML = '';
@@ -111,7 +122,7 @@
     if (po.es !== p.es) { po.es = p.es; po.emote = p.e || null; po.emoteSince = performance.now(); }   // new emote (or cleared)
     Object.assign(po, {
       animalNames: p.animalNames || {}, animalReady: p.animalReady || {}, animalBorn: p.animalBorn || {}, animalSex: p.animalSex || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
-      land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
+      land: p.land, houseLand: p.houseLand, expandLand: p.expandLand, orc: p.orc || null,
     });
   }
   function onMsg(m) {
@@ -124,15 +135,16 @@
         players = {}; m.players.forEach(upsert);
         $('#chatlog').innerHTML = ''; m.chat.forEach(addChat);
         $('#hud').hidden = false; $('#chat').hidden = false; $('#auth-root') && $('#auth-root').remove();
-        closeModal(); updateHud(); started = true; syncPhoneUI();
+        closeModal(); updateHud(); updateOnline(); msMode(false); started = true; syncPhoneUI();
         rebuildLandGrid();
         if (!me.charDone) openCreator();
         break;
-      case 'me': me = m.me; updateHud(); if (modalRefresh) modalRefresh(); break;
+      case 'me': me = m.me; updateHud(); if (modalRefresh && !(typing() && $('#overlay').contains(document.activeElement))) modalRefresh(); break;
       case 'players': {
         const seen = new Set(m.list.map(p => p.n));
         m.list.forEach(upsert);
         for (const n in players) if (!seen.has(n)) delete players[n];
+        updateOnline();
         break;
       }
       case 'tile':
@@ -148,9 +160,12 @@
         break;
       case 'casino_info': casino.info[m.game] = m; if (m.game === 'blackjack') casino.bj = m.bj || null; if (!casino.spinning) casinoRefresh(); break;
       case 'roulette_result': rouletteResult(m.r); break;
+      case 'slots_result': playSlots(m.r); break;
+      case 'harvested_many': msel.sel.clear(); msBar(); break;
+      case 'orc_work': if (Date.now() - (window._orcT || 0) > 15000) { window._orcT = Date.now(); toast('🧌 Your Orc worked the farm (' + m.n + ' job' + (m.n > 1 ? 's' : '') + ')'); } break;
       case 'chat': addChat(m); if (m.n === myName) self.say = { text: m.text, until: Date.now() + 6000 }; else if (players[m.n]) players[m.n].say = { text: m.text, until: Date.now() + 6000 }; break;
       case 'sys': addChat({ sys: true, text: m.text }); break;
-      case 'err': toast(m.msg, true); break;
+      case 'err': toast(m.msg, true); if (casino.spinning && casino.game === 'slots' && !casino.slotRunning) { clearTimeout(casino.slotWait); casino.spinning = false; casinoRefresh(); } break;
       case 'ok': toast(m.msg); break;
       case 'harvested': {
         const sd = cat.SEED_BY[m.seed];
@@ -449,7 +464,8 @@
   { let sy = null; for (let y = 0; y < WD.height; y++) if (isSea(DOCK_X, y)) { sy = y; break; }
     if (sy != null) for (let y = sy - 1; y <= sy + 3; y++) dockSet.add(DOCK_X + ',' + y); }
   const seaCenter = (() => { let sx = 0, sz = 0, n = 0; for (const k of seaSet) { const [x, z] = k.split(',').map(Number); sx += x; sz += z; n++; } return n ? { x: sx / n + .5, z: sz / n + .5 } : null; })();
-  const blocked = (x, y) => (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
+  const solidRects = [WD.bank, WD.orcMarket].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
+  const blocked = (x, y) => solidRects.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1) || (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
     || (seaSet.size > 0 && isSea(Math.floor(x / TILE), Math.floor(y / TILE)) && !dockSet.has(Math.floor(x / TILE) + ',' + Math.floor(y / TILE)));
 
   // static scenery (built once from boxes)
@@ -534,7 +550,9 @@
   }
   (function buildPOIs() {
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
-    for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
+    for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : t.id === 'slots' ? Vox.slotBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
+    if (WD.bank) piece(Vox.bankBoxes(), WD.bank.x + WD.bank.w / 2, WD.bank.y + WD.bank.h / 2, 2.4);
+    if (WD.orcMarket) piece(Vox.orcMarketBoxes(), WD.orcMarket.x + WD.orcMarket.w / 2, WD.orcMarket.y + WD.orcMarket.h / 2, 2.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
       piece(Vox.penFence(p.w - .4, p.h - .4), p.x + p.w / 2, p.y + p.h / 2, Math.max(p.w, p.h));
       piece(Vox.animalBoxes(id), p.x + p.w / 2, p.y + p.h / 2, 1.2);
@@ -583,11 +601,12 @@
     { let cb = null;
       for (const c of critters) {
         if (!c.live) continue;
-        const f = view.toScreen(c.x, 0, c.z), tp = view.toScreen(c.x, c.kind === 'cow' ? 1.1 : c.pet ? .7 : .9, c.z), hw = Math.max(14, view.ppt * .4);
+        const f = view.toScreen(c.x, 0, c.z), tp = view.toScreen(c.x, c.isOrc ? 1.5 : c.kind === 'cow' ? 1.1 : c.pet ? .7 : .9, c.z), hw = Math.max(14, view.ppt * .4);
         if (Math.abs(bx - f[0]) < hw && by < f[1] + 6 && by > tp[1] - 4 && (!cb || f[2] < cb.d)) cb = { c, d: f[2] };
       }
       if (cb) return { critter: cb.c }; }
     for (const t of (WD.casino || [])) if (Math.hypot(g0.x - t.x, g0.z - t.y) < 1.4) return { casino: t };
+    for (const [kk, r] of [['bank', WD.bank], ['orcMarket', WD.orcMarket]]) if (r && g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { [kk]: true };
     // POIs (stalls / pens / pet shop / bushes / park)
     for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
     if (WD.petShop && g0.x > WD.petShop.x && g0.x < WD.petShop.x + WD.petShop.w && g0.z > WD.petShop.y && g0.z < WD.petShop.y + WD.petShop.h) return { petShop: true };
@@ -623,7 +642,10 @@
     if (!me || modalOpen()) return;
     const [bx, by] = toBuf(cx, cy), hit = pickAt(bx, by);
     if (!hit) return;
+    if (msel.on && hit.i != null && hit.lx != null) return msToggle(hit.i, hit.lx, hit.ly);
     if (hit.shop) return tryShop();
+    if (hit.bank) return openBank();
+    if (hit.orcMarket) return openOrc();
     if (hit.critter) return openCritter(hit.critter);
     if (hit.casino) return openCasino(hit.casino.id);
     if (hit.post != null) return openLandPost(hit.post);
@@ -692,7 +714,7 @@
         bar.style.width = (p * 100) + '%';
         left.textContent = p >= 1 ? 'Ready to harvest!' : fmtLeft(tile.at + total - now()) + ' left';
       };
-      upd(); const iv = setInterval(upd, 500); modalClose = () => clearInterval(iv);
+      upd(); modalTick(upd, 500);
       return h('div', { class: 'center' }, plantIcon(sd, !!tile.gold), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'Looking only — you cannot harvest their crops.'));
     });
   }
@@ -728,7 +750,7 @@
         },
       }, 'Tap to care · earn ' + money(cat.TAP_MIN || 0.1) + '–' + money(cat.TAP_MAX || 0.5));
       const upd = () => { const p = Math.min(1, (now() - tile.at) / total); bar.style.width = (p * 100) + '%'; left.textContent = fmtLeft(tile.at + total - now()) + ' left'; if (p >= 1) { closeModal(); toast(sd.name + ' is ready! Click it to harvest.'); } };
-      upd(); const iv = setInterval(upd, 500); modalClose = () => clearInterval(iv);
+      upd(); modalTick(upd, 500);
       return h('div', { class: 'center' }, plantIcon(sd, false), left, h('div', { class: 'bar', style: 'width:100%' }, bar), earn, plantBtn, h('div', { class: 'muted' }, 'Keeps growing even when you log out or the server restarts.'));
     });
   }
@@ -753,6 +775,308 @@
       }
       return b;
     });
+  }
+
+  // ---------- ☑️ multi-select: plant / harvest many tiles at once ----------
+  const msel = { on: false, land: null, sel: new Map() };           // sel: "lx,ly" -> {lx,ly}
+  let msBarEl = null;
+  const tileReady = t => t && t.type === 'plant' && cat.SEED_BY[t.seed] && now() >= t.at + growMs(cat.SEED_BY[t.seed]);
+  function msKeysOfLand(i) {
+    const out = [], L = lands[i];
+    for (let y = 0; y < LS; y++) for (let x = 0; x < LS; x++) out.push(x + ',' + y);
+    if (L && L.extra) for (const k of Object.keys(L.extra)) out.push(k);
+    return out;
+  }
+  function msMyLand() { return msel.land != null ? msel.land : (me.land != null ? me.land : me.expandLand); }
+  function msMode(on) {
+    msel.on = on; msel.sel.clear(); if (!on) msel.land = null;
+    const b = $('#b-multi'); if (b) { b.textContent = on ? '✅ Selecting…' : '☑️ Select'; b.classList.toggle('green', on); }
+    msBar();
+  }
+  function msToggle(i, lx, ly) {
+    const L = lands[i];
+    if (!L || L.owner !== myName) return toast('Select mode works on your own land.', true);
+    if (msel.land != null && msel.land !== i) msel.sel.clear();
+    msel.land = i;
+    const k = lx + ',' + ly, tile = L.tiles[k];
+    if (tile && tile.type !== 'plant') return toast(tile.type === 'furn' ? 'Decor can’t be selected.' : 'That tile is part of a bigger piece.', true);
+    if (msel.sel.has(k)) msel.sel.delete(k); else msel.sel.set(k, { lx, ly });
+    msBar();
+  }
+  function msSplit() {
+    const i = msMyLand(), L = lands[i], empty = [], ready = [], growing = [];
+    if (L) for (const [k, s] of msel.sel) { const t = L.tiles[k]; if (!t) empty.push([s.lx, s.ly]); else if (tileReady(t)) ready.push([s.lx, s.ly]); else growing.push(k); }
+    return { i, empty, ready, growing };
+  }
+  function msBar() {
+    if (!msBarEl) {
+      msBarEl = h('div', { id: 'msbar', style: 'position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:15;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:96vw;background:#fff8e1;border:3px solid #b8862b;border-radius:14px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.25)' });
+      document.body.append(msBarEl);
+    }
+    msBarEl.hidden = !msel.on;
+    if (!msel.on) return;
+    const sp = msSplit(), land = sp.i;
+    msBarEl.replaceChildren(
+      h('div', { style: 'width:100%;text-align:center;font-weight:800' }, '☑️ Select mode · ' + msel.sel.size + ' picked' + (msel.sel.size ? ' (' + sp.empty.length + ' empty · ' + sp.ready.length + ' ready · ' + sp.growing.length + ' growing)' : ' — tap your tiles')),
+      h('button', { class: 'btn sm', onclick: () => { if (land == null) return toast('Claim a land first.', true); msel.land = land; msel.sel.clear(); for (const k of msKeysOfLand(land)) { const t = lands[land].tiles[k]; if (!t) { const [x, y] = k.split(',').map(Number); msel.sel.set(k, { lx: x, ly: y }); } } msBar(); } }, 'All empty'),
+      h('button', { class: 'btn sm', onclick: () => { if (land == null) return toast('Claim a land first.', true); msel.land = land; msel.sel.clear(); for (const k of msKeysOfLand(land)) { if (tileReady(lands[land].tiles[k])) { const [x, y] = k.split(',').map(Number); msel.sel.set(k, { lx: x, ly: y }); } } if (!msel.sel.size) toast('Nothing is ready yet.', true); msBar(); } }, 'All ready'),
+      h('button', { class: 'btn sm green', disabled: !sp.empty.length, onclick: () => msPlantPicker() }, '🌱 Plant (' + sp.empty.length + ')'),
+      h('button', { class: 'btn sm green', disabled: !sp.ready.length, onclick: () => { send({ t: 'harvest_many', land, tiles: sp.ready }); } }, '🧺 Harvest (' + sp.ready.length + ')'),
+      h('button', { class: 'btn sm', onclick: () => send({ t: 'harvest_many', all: true }) }, '🌾 Harvest ALL ready'),
+      h('button', { class: 'btn sm', disabled: !msel.sel.size, onclick: () => { msel.sel.clear(); msBar(); } }, 'Clear'),
+      h('button', { class: 'btn sm red', onclick: () => msMode(false) }, 'Done'));
+  }
+  function msPlantPicker() {
+    const sp = msSplit(); if (!sp.empty.length) return;
+    openModal('🌱 Plant on ' + sp.empty.length + ' tile' + (sp.empty.length > 1 ? 's' : ''), () => {
+      const ent = cat.SEEDS.filter(s => me.seeds[s.id] > 0);
+      if (!ent.length) return h('div', { class: 'muted' }, 'You have no seeds. Buy some at the shop 🏪.');
+      const list = h('div', { class: 'list' });
+      ent.forEach(sd => {
+        const n = Math.min(me.seeds[sd.id], sp.empty.length);
+        list.append(h('div', { class: 'lrow' }, plantIcon(sd, false),
+          h('div', { class: 'grow' }, h('b', {}, sd.name), h('div', { class: 'muted' }, 'You have ' + me.seeds[sd.id] + ' · grows ' + fmtHours(sd.hours))),
+          h('button', { class: 'btn green', onclick: () => { send({ t: 'plant_many', land: sp.i, tiles: sp.empty, seed: sd.id }); closeModal(); } }, 'Plant ' + n)));
+      });
+      return list;
+    });
+  }
+  $('#b-multi').onclick = () => { if (!me) return; if (me.land == null && me.expandLand == null) return toast('Claim a land first — click an empty land.', true); msMode(!msel.on); };
+
+  // ---------- 🟢 players online ----------
+  function updateOnline() {
+    const el = $('#hud-online'); if (!el) return;
+    const n = Object.keys(players).length + (me ? 1 : 0);
+    el.textContent = '🟢 ' + n + ' online';
+  }
+  function openOnline() {
+    openModal('🟢 Players online', () => {
+      const names = [myName, ...Object.keys(players).sort()];
+      return h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:6px' }, names.length + (names.length === 1 ? ' player is' : ' players are') + ' on the farm right now.'),
+        h('div', { class: 'list' }, names.map(n => h('div', { class: 'lrow' }, h('span', {}, n === myName ? '⭐' : '👤'), h('b', { class: 'grow' }, n + (n === myName ? ' (you)' : ''))))));
+    });
+  }
+  $('#hud-online').onclick = () => me && openOnline();
+
+  // ---------- 🧌 Orc Market ----------
+  function openOrc() {
+    openModal('🧌 Orc Market', () => {
+      const O = cat.ORC, o = me.orc;
+      if (!o) {
+        return h('div', { class: 'center', style: 'gap:8px' },
+          h('div', { style: 'font-size:56px' }, '🧌'),
+          h('div', { style: 'font-size:20px;font-weight:900' }, 'Hire a farm Orc — ' + money(O.price)),
+          h('div', {}, 'He harvests your ripe crops and replants your seeds automatically, even while you are busy (or away).'),
+          h('div', { class: 'muted' }, '✔ Auto-harvest  ✔ Auto-plant  ✔ Follows you or roams the farm  ·  one Orc per player'),
+          h('div', { class: 'muted' }, 'You have ' + money(me.money)),
+          h('button', { class: 'btn green', disabled: me.money < O.price, onclick: () => send({ t: 'buy_orc' }) }, me.money < O.price ? 'Need ' + money(O.price - me.money) + ' more' : 'Hire the Orc · ' + money(O.price)));
+      }
+      const nameInp = h('input', { class: 'txt', maxlength: 14, value: o.name || 'Orc', style: 'width:150px' });
+      const saveName = () => { if (nameInp.value.trim() && nameInp.value.trim() !== o.name) send({ t: 'orc_set', name: nameInp.value }); };
+      nameInp.onkeydown = e => { if (e.key === 'Enter') { saveName(); nameInp.blur(); } };
+      nameInp.onchange = saveName;
+      const toggle = (label, key, desc) => h('button', { class: 'btn ' + (o[key] ? 'green' : ''), style: 'width:100%;text-align:left;display:flex;justify-content:space-between;gap:8px', onclick: () => send({ t: 'orc_set', [key]: !o[key] }) },
+        h('span', {}, label, h('div', { style: 'font-size:12px;font-weight:600;opacity:.8' }, desc)), h('b', {}, o[key] ? 'ON' : 'OFF'));
+      const sel = h('select', { class: 'txt', onchange: e => send({ t: 'orc_set', seed: e.target.value }), style: 'width:100%' },
+        h('option', { value: 'any', selected: o.seed === 'any' }, 'Any seed I have'),
+        cat.SEEDS.map(s => h('option', { value: s.id, selected: o.seed === s.id }, s.name + ' (you have ' + (me.seeds[s.id] || 0) + ')')));
+      const modeBtn = (m, label) => h('button', { class: 'btn' + (o.mode === m ? ' green' : ''), style: 'flex:1', onclick: () => send({ t: 'orc_set', mode: m }) }, label);
+      const hasLand = me.land != null || me.expandLand != null;
+      return h('div', { class: 'center', style: 'gap:8px;text-align:left' },
+        h('div', { class: 'row', style: 'align-items:center;justify-content:center;gap:10px' }, h('span', { style: 'font-size:44px' }, '🧌'), nameInp, h('button', { class: 'btn sm', onclick: saveName }, 'Rename')),
+        hasLand ? null : h('div', { class: 'muted' }, 'Claim a land first — the Orc works on your farm.'),
+        h('b', {}, 'Jobs'),
+        toggle('🧺 Auto-harvest ripe crops', 'harvest', 'Picks every ripe plant on your land into your bag'),
+        toggle('🌱 Auto-plant seeds', 'plant', 'Fills empty tiles using seeds from your bag'),
+        h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:2px' }, 'Seed to plant'), sel),
+        h('b', {}, 'Behavior'),
+        h('div', { class: 'row', style: 'gap:8px' }, modeBtn('follow', '🚶 Follow me'), modeBtn('roam', '🌾 Roam the farm')),
+        h('div', { class: 'muted', style: 'font-size:12px' }, 'The Orc does up to ' + O.perTick + ' jobs every ' + (O.tickMs / 1000) + 's. Click him in the world any time to open this panel.'));
+    });
+  }
+  $('#b-orc').onclick = () => me && openOrc();
+
+  // ---------- 🏦 Sunny Bank ----------
+  const bankUI = { amt: '', tab: 'save', stamp: 0 };
+  function openBank() { if (!me) return; send({ t: 'bank_open' }); openModal('🏦 Sunny Bank', buildBank); }
+  function buildBank() {
+    const B = cat.BANK, b = me.bank || { savings: 0, loan: 0, loanTaken: 0, days: 0, eligible: false };
+    bankUI.stamp = Date.now();
+    const card = (k, v, c, id) => h('div', { style: 'background:#fff;border:2px solid #e3c88a;border-radius:10px;padding:6px 10px;text-align:center;flex:1;min-width:96px' },
+      h('div', { class: 'muted', style: 'font-size:12px' }, k), h('b', { id, style: c ? 'color:' + c : '' }, v));
+    const inp = h('input', { class: 'txt', type: 'number', min: 1, step: 'any', placeholder: 'Amount', value: bankUI.amt, style: 'width:150px' });
+    inp.oninput = () => { bankUI.amt = inp.value; };
+    const go = (t, all) => () => {
+      const a = all ? 'all' : Number(bankUI.amt);
+      if (!all && !(a > 0)) return toast('Enter an amount first.', true);
+      send({ t, amount: a });
+    };
+    const dayRate = Math.min(b.savings, B.saveCap) * B.saveDaily;
+    const live = h('b', { id: 'bank-live', style: 'color:#2b8a3e' }, money(b.savings));
+    const upd = () => { const base = Math.min(b.savings, B.saveCap), dt = (Date.now() - bankUI.stamp) / 864e5; live.textContent = money(b.savings + base * (Math.pow(1 + B.saveDaily, dt) - 1)); };
+    modalTick(upd, 1000);
+    const maxOwed = b.loanTaken * B.loanCapMult;
+    const saveTab = h('div', { class: 'center', style: 'gap:8px' },
+      h('div', { style: 'font-size:15px' }, 'Keep your money safe and earn ', h('b', {}, (B.saveDaily * 100).toFixed(0) + '% interest per day'), ' on up to ' + money(B.saveCap) + '.'),
+      h('div', {}, 'Savings now: ', live, h('span', { class: 'muted' }, '  ·  ≈ +' + money(dayRate) + ' / day')),
+      h('div', { class: 'row', style: 'justify-content:center;gap:6px;flex-wrap:wrap' }, inp,
+        h('button', { class: 'btn green', onclick: go('bank_deposit') }, 'Deposit'), h('button', { class: 'btn', onclick: go('bank_withdraw') }, 'Withdraw')),
+      h('div', { class: 'row', style: 'justify-content:center;gap:6px' },
+        h('button', { class: 'btn sm', onclick: go('bank_deposit', true) }, 'Deposit all cash'), h('button', { class: 'btn sm', onclick: go('bank_withdraw', true) }, 'Withdraw all')));
+    const loanTab = h('div', { class: 'center', style: 'gap:8px' },
+      h('div', { style: 'font-size:15px' }, 'Borrow up to ', h('b', {}, money(B.loanMax)), ' at ', h('b', {}, (B.loanDaily * 100).toFixed(0) + '% interest per day'), ' (you never owe more than ' + B.loanCapMult + '× what you borrowed).'),
+      b.eligible ? null : h('div', { style: 'background:#fff1c9;border:2px solid #e3c88a;border-radius:10px;padding:8px' }, '🔒 Loans unlock after you have played on ' + B.minDaysPlayed + ' different days. You have played ' + b.days + '.'),
+      b.loan > 0.005 ? h('div', {}, 'You owe: ', h('b', { style: 'color:#c92a2a' }, money(b.loan)), h('span', { class: 'muted' }, '  ·  max ' + money(maxOwed))) : h('div', { class: 'muted' }, 'No active loan.'),
+      h('div', { class: 'row', style: 'justify-content:center;gap:6px;flex-wrap:wrap' }, inp,
+        h('button', { class: 'btn green', disabled: !b.eligible || b.loan > 0.005, onclick: go('bank_loan') }, 'Borrow'),
+        h('button', { class: 'btn', disabled: !(b.loan > 0.005), onclick: go('bank_repay') }, 'Repay')),
+      h('div', { class: 'row', style: 'justify-content:center;gap:6px' },
+        h('button', { class: 'btn sm', disabled: !b.eligible || b.loan > 0.005, onclick: () => send({ t: 'bank_loan', amount: B.loanMax }) }, 'Borrow max ' + money(B.loanMax)),
+        h('button', { class: 'btn sm', disabled: !(b.loan > 0.005), onclick: go('bank_repay', true) }, 'Repay all')));
+    return h('div', {},
+      h('div', { class: 'row', style: 'gap:6px;margin-bottom:8px' }, card('Cash', money(me.money)), card('Savings', money(b.savings), '#2b8a3e'), card('Loan owed', money(b.loan), b.loan > 0.005 ? '#c92a2a' : '')),
+      tabs([['save', '💰 Savings'], ['loan', '🧾 Loan']], bankUI.tab, t => { bankUI.tab = t; }),
+      bankUI.tab === 'save' ? saveTab : loanTab);
+  }
+  $('#b-bank').onclick = () => openBank();
+
+  // ---------- 🎰 Super Ace-style slots (the server decides every spin; this just plays it back) ----------
+  const slCss = document.createElement('style');
+  slCss.textContent = `
+.slboard{display:flex;gap:4px;justify-content:center;background:linear-gradient(#2b1055,#5a189a);padding:8px;border-radius:14px;border:4px solid #f2b632}
+.slcol{display:flex;flex-direction:column;gap:4px}
+.slc{width:54px;height:64px;background:#fffdf5;border-radius:8px;border:2px solid #cbb98a;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;font-weight:900;box-sizing:border-box}
+.slc .slg{font-size:30px;line-height:1}.slc small{font-size:8px;font-weight:800;color:#6a4a1a}
+.slc.gold{background:linear-gradient(135deg,#fff2a8,#f2b632);border-color:#c98a00;box-shadow:inset 0 0 8px #ffd43b}
+.slc.wild{background:linear-gradient(135deg,#ffd43b,#ff922b);border-color:#a85d00}
+.slc.scat{background:linear-gradient(135deg,#e5dbff,#9775fa);border-color:#5f3dc4}
+.slc.win{animation:slwin .3s ease-in-out infinite alternate;border-color:#ff6b6b;z-index:1}
+.slc.gone{animation:slgone .35s forwards}.slc.drop{animation:sldrop .32s ease-out}
+.slc.spin{filter:blur(1.5px);opacity:.85}
+@keyframes slwin{from{transform:scale(1)}to{transform:scale(1.1);box-shadow:0 0 14px #ff6b6b}}
+@keyframes slgone{to{transform:scale(.2);opacity:0}}
+@keyframes sldrop{from{transform:translateY(-40px);opacity:.3}to{transform:none;opacity:1}}
+.slmult{display:flex;gap:4px;justify-content:center;margin:6px 0}
+.slmult span{padding:2px 10px;border-radius:12px;background:#e9ecef;font-weight:900;color:#868e96}
+.slmult span.on{background:#ff6b6b;color:#fff;box-shadow:0 0 8px #ff6b6b}
+.slbanner{min-height:26px;text-align:center;font-weight:900;font-size:18px;color:#c2255c}
+@media(max-width:480px){.slc{width:46px;height:56px}.slc .slg{font-size:25px}}`;
+  document.head.append(slCss);
+  const SL_FACE = [['10', '#1971c2'], ['J', '#2f9e44'], ['Q', '#d6336c'], ['K', '#7048e8'], ['A', '#e8590c'], ['♣', '#212529'], ['♦', '#d32f2f'], ['♥', '#d32f2f'], ['♠', '#212529']];
+  function slCard(t, extra) {
+    const d = h('div', { class: 'slc' + (t.g ? ' gold' : '') + (t.s === 9 ? ' wild' : '') + (t.s === 10 ? ' scat' : '') + (extra ? ' ' + extra : '') });
+    if (t.s === 9) d.append(h('span', { class: 'slg' }, '🃏'), h('small', {}, 'WILD'));
+    else if (t.s === 10) d.append(h('span', { class: 'slg' }, '🌟'), h('small', {}, 'SCATTER'));
+    else { const f = SL_FACE[t.s]; d.append(h('span', { class: 'slg', style: 'color:' + f[1] }, f[0])); }
+    return d;
+  }
+  const slRand = () => ({ s: Math.floor(Math.random() * 9), g: 0 });
+  const slRandGrid = () => Array.from({ length: 5 }, () => Array.from({ length: 4 }, slRand));
+  function slState() {
+    if (!casino.slot) casino.slot = { grid: slRandGrid(), mIdx: 0, free: false, left: 0, total: 0, banner: '', result: null, bet: 50 };
+    return casino.slot;
+  }
+  // repaint the whole board from a grid; `dropCols` animates the columns that refilled
+  function slPaint(grid, dropCols, cls) {
+    const S = slState(), E = casino.slEls; S.grid = grid;
+    if (!E) return;
+    for (let c = 0; c < 5; c++) {
+      E.cells[c] = grid[c].map(t => slCard(t, (dropCols && dropCols.has(c) ? 'drop ' : '') + (cls || '')));
+      E.cols[c].replaceChildren(...E.cells[c]);
+    }
+  }
+  function slLadder() {
+    const S = slState(), E = casino.slEls; if (!E) return;
+    const L = S.free ? SLOT().FREE_MULT : SLOT().BASE_MULT;
+    E.ladder.replaceChildren(...L.map((m, i) => h('span', { class: i === Math.min(S.mIdx, L.length - 1) ? 'on' : '' }, '×' + m)));
+  }
+  function slBanner(txt) { const S = slState(); S.banner = txt; if (casino.slEls) casino.slEls.banner.textContent = txt; }
+  function slWinText() { const S = slState(); if (casino.slEls) casino.slEls.win.textContent = S.total > 0 ? '🏆 Win ' + money(S.total) : ''; }
+  const SLOT = () => cat.SLOT;
+  function buildSlots() {
+    const S = slState(), SL = SLOT(), bet = Math.floor(Number(casino.chip)) || MIN_BET;
+    const cols = [], cells = [];
+    for (let c = 0; c < 5; c++) { cols.push(h('div', { class: 'slcol' })); cells.push([]); }
+    const E = casino.slEls = { cols, cells, ladder: h('div', { class: 'slmult' }), banner: h('div', { class: 'slbanner' }, S.banner), win: h('div', { style: 'text-align:center;font-weight:900;font-size:20px;color:#2b8a3e;min-height:26px' }) };
+    slPaint(S.grid); slLadder(); slWinText();
+    const cost = bet * SL.BUY_MULT, busy = casino.spinning;
+    const armed = casino.buyArm && Date.now() - casino.buyArm < 4000;
+    const pay = SL.PAY.map((p, i) => h('div', { style: 'display:flex;align-items:center;gap:8px' }, slCard({ s: i, g: 0 }), h('div', { style: 'font-size:12px' }, '3: ×' + (p[0]).toFixed(2) + ' · 4: ×' + p[1].toFixed(2) + ' · 5: ×' + p[2].toFixed(2) + ' per way')));
+    const L = S.result;
+    return h('div', { class: 'center', style: 'gap:6px' },
+      h('div', { style: 'font-size:18px;font-weight:900;color:#5a189a' }, '🃏 SUPER ACE SLOTS · 1,024 ways'),
+      E.banner, E.ladder, h('div', { class: 'slboard' }, cols), E.win,
+      !busy && L ? h('div', { style: 'font-weight:800;color:' + (L.net > 0 ? '#2b8a3e' : '#c92a2a') }, L.net > 0 ? 'Last round: +' + money(L.net) + ' profit' : 'Last round: ' + money(-L.net) + ' lost') : null,
+      chipPicker(),
+      h('div', { class: 'row', style: 'justify-content:center;gap:8px;flex-wrap:wrap' },
+        h('button', { class: 'btn green', style: 'font-size:18px;padding:10px 26px', disabled: busy || me.money < bet, onclick: () => slotSpin(false) }, busy ? 'Spinning…' : '🎰 SPIN ' + money(bet)),
+        h('button', { class: 'btn' + (armed ? ' red' : ''), style: 'padding:10px 14px', disabled: busy || me.money < cost, onclick: () => slotSpin(true) }, armed ? 'Tap again to confirm · ' + money(cost) : '💎 BUY BONUS ' + money(cost))),
+      h('div', { class: 'muted', style: 'font-size:12px;max-width:380px' }, 'Winning cards vanish and new ones drop in — the multiplier climbs ×1→×2→×3→×5 on each cascade. 🌟 3+ scatters = ' + SL.FREE_SPINS + ' free spins with ×2→×25. Golden cards turn into 🃏 wilds when they win. Buy Bonus = ' + SL.BUY_MULT + '× bet straight into free spins.'),
+      h('details', { style: 'width:100%;text-align:left' }, h('summary', { style: 'cursor:pointer;font-weight:700' }, 'Pay table (× your bet, per way)'), h('div', { style: 'display:flex;flex-direction:column;gap:4px;margin-top:6px' }, pay)));
+  }
+  function slotSpin(buy) {
+    if (casino.spinning) return;
+    const bet = chipAmount(); if (!bet) return;
+    const cost = buy ? bet * SLOT().BUY_MULT : bet;
+    if (cost > me.money) return toast('Not enough money for that.', true);
+    if (buy && !(casino.buyArm && Date.now() - casino.buyArm < 4000)) { casino.buyArm = Date.now(); casinoRefresh(); setTimeout(() => { if (casino.game === 'slots' && !casino.spinning) casinoRefresh(); }, 4100); return; }
+    casino.buyArm = 0;
+    const S = slState(); S.total = 0; S.result = null; S.bet = bet; S.free = false; S.mIdx = 0; S.banner = '';
+    casino.spinning = true; casino.slotWait = setTimeout(() => { if (casino.spinning && !casino.slotRunning) { casino.spinning = false; casinoRefresh(); } }, 9000);
+    send({ t: 'slots_spin', bet, buy: buy ? 1 : 0 });
+    casinoRefresh();
+  }
+  async function playSlots(r) {
+    clearTimeout(casino.slotWait);
+    const run = ++casino.slotRun, S = slState(), SL = SLOT(), sleep = ms => new Promise(res => setTimeout(res, ms));
+    const alive = () => casino.slotRun === run && casino.game === 'slots';
+    const finish = () => { casino.spinning = false; casino.slotRunning = false; };
+    if (!alive()) { finish(); toast(r.net > 0 ? '🎰 Slots: you won ' + money(r.net) + '!' : '🎰 Slots: ' + money(-r.net) + ' lost', r.net <= 0); return; }
+    casino.slotRunning = true;
+    const bet = r.bet, chains = [];
+    if (r.base) chains.push({ ch: r.base, free: false });
+    r.free.forEach(ch => chains.push({ ch, free: true }));
+    let left = r.freeSpins, running = 0, firstFree = true;
+    for (const { ch, free } of chains) {
+      if (!alive()) return finish();
+      S.free = free; S.mIdx = 0; slLadder();
+      if (free) {
+        if (firstFree) { firstFree = false; slBanner(r.buy ? '💎 BONUS BOUGHT — ' + r.freeSpins + ' FREE SPINS!' : '🌟 ' + r.freeSpins + ' FREE SPINS!'); await sleep(1700); if (!alive()) return finish(); }
+        left--; S.left = left; slBanner('🎁 FREE SPIN · ' + left + ' left');
+      } else slBanner('');
+      // reels spin
+      for (let i = 0; i < 3; i++) { slPaint(slRandGrid(), null, 'spin'); await sleep(80); if (!alive()) return finish(); }
+      let dropCols = new Set([0, 1, 2, 3, 4]);
+      for (const st of ch.steps) {
+        slPaint(st.grid, dropCols);
+        const L = free ? SL.FREE_MULT : SL.BASE_MULT;
+        S.mIdx = Math.max(0, L.indexOf(st.mult)); slLadder();
+        await sleep(st.wins.length ? 350 : 300); if (!alive()) return finish();
+        if (!st.wins.length) break;
+        const E = casino.slEls;
+        const mark = new Set(); st.wins.forEach(w => w.cells.forEach(([c, rr]) => mark.add(c * 10 + rr)));
+        if (E) mark.forEach(k => { const el = E.cells[Math.floor(k / 10)][k % 10]; if (el) el.classList.add('win'); });
+        running += st.win * bet; S.total = running; slWinText();
+        slBanner('+' + money(st.win * bet) + '  (×' + st.mult + ')');
+        await sleep(750); if (!alive()) return finish();
+        const E2 = casino.slEls;
+        if (E2) {
+          (st.wild || []).forEach(k => { const el = E2.cells[Math.floor(k / 10)][k % 10]; if (el) el.replaceWith(slCard({ s: SL.WILD ?? 9, g: 0 })); });
+          (st.gone || []).forEach(k => { const el = E2.cells[Math.floor(k / 10)][k % 10]; if (el) el.classList.add('gone'); });
+        }
+        await sleep(380); if (!alive()) return finish();
+        dropCols = new Set((st.gone || []).map(k => Math.floor(k / 10)));
+      }
+      if (ch.retrigger) { left += ch.retrigger; slBanner('🌟 +' + ch.retrigger + ' FREE SPINS!'); await sleep(1400); }
+      await sleep(250);
+    }
+    if (!alive()) return finish();
+    S.total = r.paid; S.result = { net: r.net, paid: r.paid };
+    slWinText();
+    slBanner(r.paid > 0 ? (r.capped ? '🏆 MAX WIN! ' : (r.paid >= r.cost * 5 ? '🎉 BIG WIN! ' : '')) + money(r.paid) : 'No win this time');
+    finish();
+    if (r.net > 0) toast('🎰 You won ' + money(r.net) + '!'); else toast('🎰 ' + (r.paid > 0 ? 'Only ' + money(r.paid) + ' back' : 'No win'), true);
+    casinoRefresh();
   }
 
   // ---------- mini-games + side activities ----------
@@ -791,6 +1115,7 @@
   const tagLift = (emote, et) => emote === 'jump' ? .45 * Math.abs(Math.sin((et || 0) * 7)) : emote === 'dance' ? .16 * Math.abs(Math.sin((et || 0) * 9)) : emote === 'sit' ? -.3 : emote === 'spin' ? .1 * Math.abs(Math.sin((et || 0) * 5)) : 0;
   const CRITTER_ICON = { chicken: '🐔', cow: '🐄', sheep: '🐑' };
   function openCritter(c) {
+    if (c.isOrc) return c.owner === myName ? openOrc() : openModal('🧌 ' + c.name, () => h('div', { class: 'center' }, h('div', { style: 'font-size:56px' }, '🧌'), h('b', {}, c.name), h('div', { class: 'muted' }, c.owner + "'s farm Orc — hard at work.")));
     c._shownUntil = Date.now() + 6000;
     const pdef = c.pet ? (cat.PETS || []).find(x => x.id === c.pid) : null;
     const a = cat.ANIMALS[c.kind], label = pdef ? pdef.name : (a ? a.name : c.kind), icon = c.pet ? '🐾' : (CRITTER_ICON[c.kind] || '🐾');
@@ -843,13 +1168,13 @@
   const MIN_BET = 50;
   const RED_NUMS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
   const rColor = n => n === 0 ? '#1f8a4c' : RED_NUMS.has(n) ? '#c0392b' : '#222';
-  const casino = { game: null, tab: 'play', info: {}, bj: null, chip: 50, bets: {}, order: [], last: null, spinning: false, wheelEl: null };
-  const CASINO_TITLE = { roulette: '🎡 Roulette Table', blackjack: '🃏 Blackjack Table' };
+  const casino = { game: null, tab: 'play', info: {}, bj: null, chip: 50, bets: {}, order: [], last: null, spinning: false, wheelEl: null, slot: null, slotRun: 0, slotRunning: false, slEls: null, buyArm: 0, slotWait: 0 };
+  const CASINO_TITLE = { roulette: '🎡 Roulette Table', blackjack: '🃏 Blackjack Table', slots: '🎰 Super Ace Slots' };
   function openCasino(game) {
     casino.game = game; casino.tab = 'play'; casino.last = null; casino.spinning = false;
     send({ t: 'casino_open', game });
     openModal(CASINO_TITLE[game], buildCasino);
-    modalClose = () => { casino.game = null; casino.spinning = false; clearInterval(casino.iv); };
+    modalClose = () => { casino.game = null; casino.spinning = false; casino.slotRun++; casino.slotRunning = false; casino.buyArm = 0; clearInterval(casino.iv); };
   }
   const casinoRefresh = () => { if (casino.game && modalRefresh) modalRefresh(); };
   const chipAmount = () => {
@@ -886,7 +1211,7 @@
     return h('div', {},
       h('div', { class: 'tabs' }, tabBtn('play', '🎲 Play'), tabBtn('info', 'ℹ️ Info & Top 10')),
       h('div', { class: 'muted', style: 'text-align:center;margin:4px 0' }, 'Minimum bet ' + money(MIN_BET) + ' · You have ' + money(me.money)),
-      casino.tab === 'info' ? casinoStats(info) : (g === 'roulette' ? buildRoulette(info) : buildBlackjack()));
+      casino.tab === 'info' ? casinoStats(info) : (g === 'roulette' ? buildRoulette(info) : g === 'slots' ? buildSlots() : buildBlackjack()));
   }
   // --- roulette ---
   const BOARD_OUTSIDE = [['dozen:1', '1st 12', '#2f9e44'], ['dozen:2', '2nd 12', '#2f9e44'], ['dozen:3', '3rd 12', '#2f9e44'],
@@ -1057,7 +1382,7 @@
       return;
     }
     if (typing()) { if (e.key === 'Escape') document.activeElement.blur(); return; }
-    if (e.key === 'Escape') { if (modalOpen() && !modalLocked) closeModal(); return; }
+    if (e.key === 'Escape') { if (modalOpen() && !modalLocked) closeModal(); else if (msel.on) msMode(false); return; }
     if (modalOpen()) return;
     const k = e.key.toLowerCase(); keys.add(k);
     if (k === 'f') tryShop();
@@ -1209,20 +1534,28 @@
   function pickRoamTarget(o) {
     return { tx: o.x + 0.6 + Math.random() * (LS - 1.2), tz: o.y + 0.6 + Math.random() * (LS - 1.2) };
   }
+  function orcRoamTarget(c) {
+    const L = lands[c._li], o = WD.lands[c._li];
+    if (L && o && Math.random() < .75) {
+      const ks = Object.keys(L.tiles).filter(k => L.tiles[k].type === 'plant');
+      if (ks.length) { const [lx, ly] = ks[Math.floor(Math.random() * ks.length)].split(',').map(Number); return { tx: o.x + lx + .5, tz: o.y + ly + 1.0 }; }
+    }
+    return pickRoamTarget({ x: c._ox, y: c._oy });
+  }
   function updateCritters(dt) {
     const next = new Map();
     const owners = [];
     if (me) owners.push({
       n: myName, animalNames: me.animalNames || {}, animalReady: me.animalReady || {}, animalBorn: me.animalBorn || {}, animalSex: me.animalSex || {}, animals: me.animals || {}, pets: me.pets || [], animalStay: me.animalStay || 'farm', petStay: me.petStay || 'follow',
       land: me.land, houseLand: me.houseLand, expandLand: me.expandLand,
-      px: self.x / TILE, pz: self.y / TILE, follow: true,
+      px: self.x / TILE, pz: self.y / TILE, follow: true, orc: me.orc ? { n: me.orc.name || 'Orc', m: me.orc.mode } : null,
     });
     for (const n in players) {
       const p = players[n];
       owners.push({
         n: p.n, animalNames: p.animalNames || {}, animalReady: p.animalReady || {}, animalBorn: p.animalBorn || {}, animalSex: p.animalSex || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
         land: p.land, houseLand: p.houseLand, expandLand: p.expandLand,
-        px: (p.rx || p.x) / TILE, pz: (p.ry || p.y) / TILE, follow: false,
+        px: (p.rx || p.x) / TILE, pz: (p.ry || p.y) / TILE, follow: false, orc: p.orc || null,
       });
     }
     const prev = new Map(critters.map(c => [c.key, c]));
@@ -1262,6 +1595,16 @@
         }
       });
     }
+    for (const own of owners) {
+      if (!own.orc) continue;
+      const key = own.n + ':orc', c = ensureCritter(prev, key, 'orc', false);
+      next.set(key, c);
+      c.live = true; c.isOrc = true; c.owner = own.n; c.name = own.orc.n || 'Orc'; c.born = 0; c.sex = '';
+      if (!c.x && !c.z) { c.x = own.px - 1; c.z = own.pz; }
+      const li = own.land != null ? own.land : own.expandLand, o = own.orc.m === 'roam' && li != null ? WD.lands[li] : null;
+      if (o) { c._follow = false; c._roam = true; c._ox = o.x; c._oy = o.y; c._li = li; if (!c.tx) { c.tx = c.x; c.tz = c.z; c.wait = 0; } }
+      else { c._follow = true; c._roam = false; c._fx = own.px; c._fz = own.pz; c._fi = 3; }
+    }
     critters.length = 0;
     for (const c of next.values()) {
       if (c._follow) {
@@ -1280,10 +1623,10 @@
         const dx = c.tx - c.x, dz = c.tz - c.z, dist = Math.hypot(dx, dz);
         if (dist < 0.12 || c.wait < 0) {
           if (dist < 0.12) c.wait = 0.6 + Math.random() * 2.2;
-          const t = pickRoamTarget({ x: c._ox, y: c._oy });
+          const t = c.isOrc ? orcRoamTarget(c) : pickRoamTarget({ x: c._ox, y: c._oy });
           c.tx = t.tx; c.tz = t.tz;
         } else {
-          const sp = (c.kind === 'cow' ? 0.55 : c.pet ? 0.9 : 0.75) * dt;
+          const sp = (c.isOrc ? 1.1 : c.kind === 'cow' ? 0.55 : c.pet ? 0.9 : 0.75) * dt;
           c.x += dx / dist * sp; c.z += dz / dist * sp;
           c.psi += angDiff(c.psi, Math.atan2(dx, dz)) * Math.min(1, dt * 8);
           c.walk += dt * 8;
@@ -1393,6 +1736,10 @@
       }
     }
 
+    if (msel.on && msel.land != null && WD.lands[msel.land] && lands[msel.land]) {
+      const o = WD.lands[msel.land], tl = lands[msel.land].tiles;
+      for (const [k, sq] of msel.sel) { const tt = tl[k]; view.quad(o.x + sq.lx, o.y + sq.ly, o.x + sq.lx + 1, o.y + sq.ly + 1, 0.035, !tt ? 'rgba(70,190,255,.6)' : tileReady(tt) ? 'rgba(255,160,30,.65)' : 'rgba(255,235,90,.55)'); }
+    }
     // objects (statics baked once into GPU group)
     if (!view._staticsBaked) { view.bakeStatic(statics); view._staticsBaked = true; }
     // model home walls/roof: solid outside, transparent inside so furniture shows
@@ -1434,7 +1781,7 @@
     view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving, { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT });
     updateCritters(dt);
     for (const c of critters) {
-      const sc = c.pet ? 0.85 : (c.kind === 'cow' ? 1.15 : 0.95);
+      const sc = c.isOrc ? 1.12 : c.pet ? 0.85 : (c.kind === 'cow' ? 1.15 : 0.95);
       const cm = (c._follow && Math.hypot((c._fx || c.x) - c.x, (c._fz || c.z) - c.z) > 0.08)
         || (c._roam && Math.hypot(c.tx - c.x, c.tz - c.z) > 0.12);
       if (c._ph == null) c._ph = Math.random() * 6.28;
@@ -1478,6 +1825,7 @@
       const mid = toPage(WD.casino[0].x, 2.3, (WD.casino[0].y + WD.casino[WD.casino.length - 1].y) / 2);
       lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
     }
+    for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
     if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
@@ -1488,8 +1836,8 @@
         lctx.font = '16px sans-serif'; lctx.textAlign = 'center'; lctx.fillText(c.kind === 'cow' ? '🥛' : '✂️', hp[0], hp[1] - (c.name ? 18 : 4) - Math.abs(Math.sin(t * 3)) * 3); lctx.textAlign = 'left';
       }
       if (!c.live || !c.name) continue;   // named animals and pets always show their name
-      const s = toPage(c.x, c.kind === 'cow' ? 1.35 : c.pet ? .95 : 1.1, c.z);
-      if (s[0] > -60 && s[0] < vw + 60 && s[1] > -40 && s[1] < vh + 40) tag(c.name, s[0], s[1], '#ffe8a3');
+      const s = toPage(c.x, c.isOrc ? CHAR_HEAD_Y(1.12) : c.kind === 'cow' ? 1.35 : c.pet ? .95 : 1.1, c.z);
+      if (s[0] > -60 && s[0] < vw + 60 && s[1] > -40 && s[1] < vh + 40) tag((c.isOrc ? '🧌 ' : '') + c.name, s[0], s[1] - (c.isOrc ? 3 : 0), c.isOrc ? '#c0eb75' : '#ffe8a3');
     }
     for (const p of list) { const s = toPage(p.rx / TILE, CHAR_HEAD_Y(1.05) + tagLift(p._fx, p._fxt) * PITCH_K, p.ry / TILE); tag(p.n, s[0], s[1] - 3); if (p._fx) emoteFx(p._fx, p._fxt, s[0], s[1]); if (p.say && p.say.until > Date.now()) bubble(p.say.text, s[0], s[1] - 22); }
     { const s = toPage(self.x / TILE, CHAR_HEAD_Y(1.12) + tagLift(self.emote, myFxT) * PITCH_K, self.y / TILE); tag(me.name, s[0], s[1] - 3, '#ffe066'); if (self.emote) emoteFx(self.emote, myFxT, s[0], s[1]); if (self.say && self.say.until > Date.now()) bubble(self.say.text, s[0], s[1] - 22); }
@@ -1503,6 +1851,8 @@
       else if (hoverTile.bush) hint = 'Click: forage bush (~5% rare loot)';
       else if (hoverTile.casino) hint = 'Click: ' + hoverTile.casino.name + ' (min bet ' + money(MIN_BET) + ')';
       else if (hoverTile.critter) hint = hoverTile.critter.owner === myName ? 'Click: name' + (hoverTile.critter.kind === 'cow' ? ' / milk' : hoverTile.critter.kind === 'sheep' ? ' / shear' : '') + ' your ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) : 'Click: see this ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) + "'s name";
+      else if (hoverTile.bank) hint = 'Click: Sunny Bank (savings & loans)';
+      else if (hoverTile.orcMarket) hint = 'Click: Orc Market (hire a farm Orc)';
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
       else if (hoverTile.park) hint = 'Click: Mini Park (slides & benches)';

@@ -180,6 +180,14 @@ function squarePrice(ownedExtras) {
   const n = Math.max(0, Math.floor(Number(ownedExtras) || 0));
   return SQUARE_COST + n * SQUARE_GROW;
 }
+// 🧌 Orc Market: one hired Orc per player; it harvests ripe crops and replants seeds for you.
+const ORC = { price: 20000, tickMs: 4000, perTick: 2 };
+// 🏦 Sunny Bank
+const BANK = {
+  loanMax: 2000, loanDaily: 0.05, loanCapMult: 2,   // 5%/day on the loan, total owed never exceeds 2x what was borrowed
+  minDaysPlayed: 2,                                  // distinct days you must have played to qualify for a loan
+  saveDaily: 0.02, saveCap: 50000,                   // 2%/day interest on the first $50,000 saved
+};
 const TAP_MIN = 0.1;     // plant-care tap earnings while growing
 const TAP_MAX = 0.5;
 const WORLD = {
@@ -200,6 +208,9 @@ const WORLD = {
     { id: 'bakery', name: 'Invader Arcade', x: 0.5, y: 20, game: 'invader', pay: [15, 26], cd: 55 },
     { id: 'arcade', name: 'Race Booth', x: 49.5, y: 12, game: 'race', pay: [15, 26], cd: 55 },
   ],
+  // Sunny Bank + Orc Market sit in the open crossroads between the farm plots (west and east of the shop)
+  bank: { x: 10.5, y: 10.4, w: 4, h: 3 },
+  orcMarket: { x: 36.5, y: 10.4, w: 4, h: 3 },
   petShop: { x: 12, y: 24, w: 4, h: 3 },
   pens: {
     chicken: { x: 1, y: 24, w: 4, h: 2 },
@@ -211,6 +222,7 @@ const WORLD = {
   casino: [
     { id: 'roulette', name: 'Roulette Table', x: 55, y: 30 },
     { id: 'blackjack', name: 'Blackjack Table', x: 55, y: 35 },
+    { id: 'slots', name: 'Super Ace Slots', x: 55, y: 40 },
   ],
   bushes: [
     { id: 'b1', x: 36, y: 25 }, { id: 'b2', x: 40, y: 27 }, { id: 'b3', x: 48, y: 26 },
@@ -328,7 +340,7 @@ const MINIGAMES = {
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
   GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_GROW, SQUARE_MAX, squarePrice,
-  TAP_MIN, TAP_MAX, NPC_HOME_FURN, NPC_HOME_VER,
+  ORC, BANK, TAP_MIN, TAP_MAX, NPC_HOME_FURN, NPC_HOME_VER,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.concat(BIG_SHAPES).map(s => s[0]),
   SEED_BY: Object.fromEntries(SEEDS.map(s => [s.id, s])),

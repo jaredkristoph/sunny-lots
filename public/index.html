@@ -74,12 +74,15 @@ body.phone #hud .row .btn,body.touchable #hud .row .btn{padding:8px 10px}
 <canvas id="game"></canvas>
 <canvas id="labels"></canvas>
 <div id="hud" hidden>
-  <div class="pill"><span id="hud-name"></span><span id="hud-money"></span></div>
+  <div class="pill"><span id="hud-name"></span><span id="hud-money"></span><span id="hud-online" title="Players online (click for the list)" style="cursor:pointer"></span></div>
   <div class="row">
     <button class="btn" id="b-rl" title="Rotate left (Q)">⟲</button>
     <button class="btn" id="b-rr" title="Rotate right (E)">⟳</button>
     <button class="btn" id="b-emote" title="Emotes (G)">😀 Emote</button>
     <button class="btn" id="b-mail" title="Mail" style="position:relative">📬 Mail<span id="mail-badge" hidden style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e03131;color:#fff;font:700 11px/18px sans-serif;text-align:center;box-shadow:0 0 0 2px #fff"></span></button>
+    <button class="btn" id="b-multi" title="Select many tiles to plant or harvest">☑️ Select</button>
+    <button class="btn" id="b-bank" title="Sunny Bank">🏦 Bank</button>
+    <button class="btn" id="b-orc" title="Orc worker">🧌 Orc</button>
     <button class="btn" id="b-bag">🎒 Bag</button>
     <button class="btn" id="b-ward">👕 Wardrobe</button>
     <button class="btn" id="b-home">🏠 Home</button>
