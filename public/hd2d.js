@@ -757,6 +757,14 @@ class View {
     }
   }
 
+  // draw any pixel canvas as a standing billboard (used for the Bitmonster that follows you); textures are cached by key
+  addCanvasSprite(key, canvas, x, z, scale, walk, moving, extra) {
+    this._csCache = this._csCache || new Map();
+    let t = this._csCache.get(key);
+    if (!t) { t = new THREE.CanvasTexture(canvas); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; this._csCache.set(key, t); }
+    this.addBillboard(t, x, 0, z, Object.assign({ scale: scale || 1, walk: walk || 0, moving: !!moving }, extra || {}));
+  }
+
   addCharacter(avatar, cat, x, z, scale, walk, moving, extra) {
     const frame = walkFrame(walk || 0, !!moving);
     const tex = makeCharSprite(avatar, cat, frame);

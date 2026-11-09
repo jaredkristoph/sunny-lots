@@ -725,6 +725,7 @@
     { gender: 'male', skin: '#5c3a1e', hairColor: '#2b1b0e', top: 'top_chef', bottom: 'bot_khaki', hat: 'hat_cowboy', shoes: 'shoe_boots' },
     { gender: 'female', skin: '#f5cba0', hairColor: '#2e86de', top: 'top_tee_white', bottom: 'bot_shorts_grey', hat: 'hat_helmet', shoes: 'shoe_plain' },
   ];
+  const monFol = { x: 0, z: 0, on: false, walk: 0, moving: false, id: 0, name: '' };
   const monActors = () => (MD && WALL ? MD.NPCS.concat(MD.TRAINERS) : []);
   const beatenSet = () => new Set((me && me.mon && me.mon.beaten) || []);
   let lastGT = '', grassSteps = 0, encCool = 0;
@@ -1854,6 +1855,7 @@
       }
       const pets = own.pets || [];
       pets.forEach((pid, i) => {
+        if (own.petStay === 'follow') return;          // followers removed: your Bitmonster walks with you instead
         const key = own.n + ':p:' + pid;
         const c = ensureCritter(prev, key, pid, true);
         next.set(key, c);
@@ -1870,6 +1872,7 @@
     }
     for (const own of owners) {
       if (!own.orc) continue;
+      if (!(own.orc.m === 'roam' && (own.land != null || own.expandLand != null))) continue;   // no following Orc
       const key = own.n + ':orc', c = ensureCritter(prev, key, 'orc', false);
       next.set(key, c);
       c.live = true; c.isOrc = true; c.owner = own.n; c.name = own.orc.n || 'Orc'; c.born = 0; c.sex = '';
@@ -2054,6 +2057,16 @@
     const myFxT = (performance.now() - (self.emoteAt || 0)) / 1000;
     if (self.emote === 'sit') view.add(SEAT, self.x / TILE, 0, self.y / TILE, 0, 1);
     view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving, { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT });
+    if (me.mon && me.mon.starter && me.mon.party.length && !monBattle && window.MonSprite) {   // your lead Bitmonster walks behind you
+      const lead = me.mon.party.find(m => m.hp > 0) || me.mon.party[0], sx = self.x / TILE, sz = self.y / TILE;
+      if (!monFol.on || Math.hypot(monFol.x - sx, monFol.z - sz) > 7) { monFol.x = sx - .8; monFol.z = sz + .4; monFol.on = true; }
+      const dx = sx - monFol.x, dz = sz - monFol.z, d = Math.hypot(dx, dz);
+      monFol.moving = d > 1.15;
+      if (monFol.moving) { const st = Math.min(d - 1.0, (moving ? 4.6 : 3.2) * dt); monFol.x += dx / d * st; monFol.z += dz / d * st; monFol.walk += dt * 10; }
+      monFol.id = lead.sp; monFol.name = lead.name;
+      const cv = window.MonSprite.canvas(lead.sp, lead.shiny);
+      view.addCanvasSprite('m' + lead.sp + (lead.shiny ? 's' : ''), cv, monFol.x, monFol.z, .95, monFol.walk, monFol.moving, { pump: { speed: 3, amp: .04, ph: 1 } });
+    } else monFol.on = false;
     for (const a of monActors()) view.addCharacter(NPC_LOOKS[(a.look || 0) % NPC_LOOKS.length], cat, a.x, a.y, 1.08, 0, false, { pump: { speed: 2.0, amp: .02, ph: a.x } });
     updateCritters(dt);
     for (const c of critters) {
@@ -2102,6 +2115,7 @@
       lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
     }
     for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4], ['🏥 Bitmon Center', WD.center, 3.1]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
+    if (monFol.on) { const fp = toPage(monFol.x, .85, monFol.z); tag(monFol.name, fp[0], fp[1] - 2, '#d3f9d8'); }
     if (WALL) {
       const gE = toPage(WALL.x1 + 1.2, 1.6, (WALL.gates.e.y0 + WALL.gates.e.y1) / 2);
       if (gE[0] > -120 && gE[0] < vw + 120) tag('East Gate → Route 1', gE[0], gE[1], '#fff3c4');
