@@ -19,23 +19,24 @@ function ensureMon(u) {
   if (!Array.isArray(m.badges)) m.badges = [];
   if (m.starter === undefined) m.starter = null;
   if (u.battle === undefined) u.battle = null;
+  for (const x of m.party.concat(m.box)) if (x.nature === undefined) x.nature = rnd(25);
   return m;
 }
 function makeMon(spId, lv, o = {}) {
   const sp = M.SPECIES[spId];
-  const iv = {}; for (const k of M.STATS) iv[k] = rnd(16);
-  const mon = { id: uid(), sp: spId, lv, xp: M.xpFor(lv), iv, hp: 0, status: null, slp: 0, nick: o.nick || null, shiny: rnd(512) === 0, born: Date.now(), moves: M.movesAt(sp, lv).map(id => ({ id, pp: M.MOVES[id].pp })) };
-  mon.hp = M.calcStats(sp, lv, iv).hp;
+  const iv = {}; for (const k of M.STATS) iv[k] = rnd(32);
+  const mon = { id: uid(), sp: spId, lv, xp: M.xpFor(lv), iv, nature: rnd(25), hp: 0, status: null, slp: 0, nick: o.nick || null, shiny: rnd(512) === 0, born: Date.now(), moves: M.movesAt(sp, lv).map(id => ({ id, pp: M.MOVES[id].pp })) };
+  mon.hp = M.calcStats(sp, lv, iv, mon.nature).hp;
   return mon;
 }
-const stats = m => M.calcStats(M.SPECIES[m.sp], m.lv, m.iv);
+const stats = m => M.calcStats(M.SPECIES[m.sp], m.lv, m.iv, m.nature);
 const maxHp = m => stats(m).hp;
 function monView(m, full) {
   const sp = M.SPECIES[m.sp], st = stats(m);
   const v = { id: m.id, sp: m.sp, name: m.nick || sp.name, lv: m.lv, hp: m.hp, max: st.hp, status: m.status, shiny: !!m.shiny };
   if (full) {
     v.xp = m.xp; v.xpCur = M.xpFor(m.lv); v.xpNext = M.xpFor(Math.min(M.MAX_LV, m.lv + 1)); v.stats = st;
-    v.moves = m.moves.map(x => ({ id: x.id, pp: x.pp, max: M.MOVES[x.id].pp })); v.nick = m.nick; v.born = m.born;
+    v.moves = m.moves.map(x => ({ id: x.id, pp: x.pp, max: M.MOVES[x.id].pp })); v.nick = m.nick; v.born = m.born; v.nature = m.nature | 0; v.ivSum = M.STATS.reduce((a, k) => a + ((m.iv && m.iv[k]) || 0), 0);
   }
   return v;
 }
@@ -66,7 +67,7 @@ function startTrainer(u, tr) {
 }
 function newBattle(u, kind, foe, tr) {
   const m = u.mon;
-  return { kind, trainer: tr ? { id: tr.id, name: tr.name, reward: tr.reward, win: tr.win } : null, foe, foeIdx: 0, active: firstAlive(m.party), turn: 1, stages: { p: freshStages(), f: freshStages() }, part: [], phase: 'act', over: false, result: null, runs: 0 };
+  return { kind, trainer: tr ? { id: tr.id, name: tr.name, reward: tr.reward, win: tr.win, badge: tr.badge || null, gym: tr.gym || null } : null, foe, foeIdx: 0, active: firstAlive(m.party), turn: 1, stages: { p: freshStages(), f: freshStages() }, part: [], phase: 'act', over: false, result: null, runs: 0 };
 }
 const activeP = (u) => u.mon.party[u.battle.active];
 const activeF = b => b.foe[b.foeIdx];
@@ -86,7 +87,7 @@ function calcDamage(att, def, mv, b, aSide) {
   return { dmg, tm, crit };
 }
 const nameOf = (m) => m.nick || M.SPECIES[m.sp].name;
-const who = (b, side, u) => side === 'p' ? nameOf(activeP(u)) : (b.kind === 'wild' ? 'The wild ' : 'Foe ') + nameOf(activeF(b));
+const who = (b, side, u) => b.kind === 'pvp' ? '{' + side + ':' + nameOf(side === 'p' ? activeP(u) : activeF(b)) + '}' : side === 'p' ? nameOf(activeP(u)) : (b.kind === 'wild' ? 'The wild ' : 'Foe ') + nameOf(activeF(b));
 const STAGE_NAME = { atk: 'Attack', def: 'Defense', spa: 'Sp. Attack', sdf: 'Sp. Defense', spe: 'Speed' };
 function applyStage(b, side, k, n, ev, label) {
   const cur = b.stages[side][k], nv = Math.max(-6, Math.min(6, cur + n));
@@ -208,6 +209,7 @@ function finish(u, b, result, ev) {
     u.money = Math.round((u.money + pay) * 100) / 100;
     ev.push({ k: 'msg', text: b.trainer.name + ': "' + b.trainer.win + '"' });
     ev.push({ k: 'msg', text: 'You earned $' + pay + (first ? '!' : ' (rematch)') });
+    if (b.trainer.badge && !u.mon.badges.includes(b.trainer.badge)) { u.mon.badges.push(b.trainer.badge); ev.push({ k: 'msg', text: '🏅 You received the ' + b.trainer.badge + '!' }); ev.push({ k: 'badge', name: b.trainer.badge }); }
   }
   if (result === 'lose') {
     ev.push({ k: 'msg', text: 'You blacked out! Your monsters were healed at the Bitmon Center.' });
@@ -314,7 +316,7 @@ function act(db, u, a) {
         if (a.item === 'heal') { F.hp = mh; F.status = null; }
         F.status = F.status && a.item !== 'heal' ? null : F.status;
         u.mon.dex.caught[F.sp] = 1; u.mon.dex.seen[F.sp] = 1;
-        const keep = { id: F.id, sp: F.sp, lv: F.lv, xp: F.xp, iv: F.iv, hp: F.hp, status: null, slp: 0, nick: null, shiny: F.shiny, born: Date.now(), moves: F.moves, ball: a.item };
+        const keep = { id: F.id, sp: F.sp, lv: F.lv, xp: F.xp, iv: F.iv, nature: F.nature, hp: F.hp, status: null, slp: 0, nick: null, shiny: F.shiny, born: Date.now(), moves: F.moves, ball: a.item };
         if (u.mon.party.length < PARTY_MAX) { u.mon.party.push(keep); ev.push({ k: 'msg', text: nameOf(keep) + ' joined your team.' }); }
         else if (u.mon.box.length < BOX_MAX) { u.mon.box.push(keep); ev.push({ k: 'msg', text: nameOf(keep) + ' was sent to the Bitmon Box.' }); }
         else ev.push({ k: 'msg', text: 'Your box is full — it was released.' });
@@ -362,4 +364,120 @@ function rollWild(route) {
   for (const [id, w] of route.pool) { if ((r -= w) < 0) { sp = id; break; } }
   return { sp, lv: route.levels[0] + rnd(route.levels[1] - route.levels[0] + 1) };
 }
-module.exports = { ensureMon, makeMon, monView, startWild, startTrainer, act, view, healAll, rollWild, stats, maxHp, PARTY_MAX, levelUp };
+
+// ======================================================================
+// Player vs player (friendly battles). Both sides use full-health CLONES of their party, so nothing is lost or gained.
+// Events are built from side A's point of view (A = 'p', B = 'f'); text markers {p:Name}/{f:Name} are resolved per viewer.
+// ======================================================================
+const cloneMon = m => ({ id: m.id, sp: m.sp, lv: m.lv, xp: m.xp, iv: Object.assign({}, m.iv), nature: m.nature, hp: maxHp(m), status: null, slp: 0, nick: m.nick, shiny: m.shiny, moves: m.moves.map(x => ({ id: x.id, pp: M.MOVES[x.id].pp })) });
+function pvpNew(nameA, partyA, nameB, partyB) {
+  const side = (name, party) => ({ name, party: party.filter(m => m.hp > 0).slice(0, PARTY_MAX).map(cloneMon), active: 0, stages: freshStages(), choice: null, need: false });
+  return { A: side(nameA, partyA), B: side(nameB, partyB), turn: 1, over: false, winner: null, started: Date.now() };
+}
+const other = S => S === 'A' ? 'B' : 'A';
+function pvpView(pv, S) {
+  const me = pv[S], foe = pv[other(S)], p = me.party[me.active], f = foe.party[foe.active];
+  const phase = pv.over ? 'over' : me.need ? 'switch' : (me.choice || foe.need) ? 'wait' : 'act';
+  return {
+    kind: 'pvp', trainer: { name: foe.name }, phase, result: pv.over ? (pv.winner === S ? 'win' : 'lose') : null, turn: pv.turn,
+    me: monView(p, true), foe: Object.assign(monView(f), { owned: false, types: M.SPECIES[f.sp].types }), foeLeft: alive(foe.party).length,
+    party: me.party.map(m => monView(m)), active: me.active, items: {},
+  };
+}
+// resolve markers + flip sides for viewer S
+function pvpFlip(events, S) {
+  const flip = S === 'B', own = x => (flip ? x === 'f' : x === 'p');
+  const txt = t => t.replace(/\{(p|f):([^}]*)\}/g, (_, sd, nm) => own(sd) ? nm : 'Foe ' + nm).replace(/\{(p|f)\|([^|}]*)\|([^}]*)\}/g, (_, sd, a, b2) => own(sd) ? a : b2);
+  const fs = x => !flip ? x : x === 'p' ? 'f' : x === 'f' ? 'p' : x;
+  return events.map(e => {
+    const o = Object.assign({}, e);
+    if (o.text) o.text = txt(o.text);
+    if (o.side) o.side = fs(o.side);
+    if (o.anim) o.anim = Object.assign({}, o.anim, { side: fs(o.anim.side) });
+    if (o.k === 'end') o.result = e.winner === S ? 'win' : 'lose';
+    return o;
+  });
+}
+function pvpAct(pv, S, a) {
+  if (pv.over) return { error: 'The battle is over.' };
+  const me = pv[S], foe = pv[other(S)], ev = [];
+  const sd = S === 'A' ? 'p' : 'f';
+  if (me.need) {                                 // forced replacement after a faint
+    if (a.a !== 'switch') return { error: 'Choose a monster to send out.' };
+    const nm = me.party[a.i]; if (!nm || nm.hp <= 0 || a.i === me.active) return { error: 'That monster cannot battle.' };
+    me.active = a.i; me.stages = freshStages(); me.need = false;
+    ev.push({ k: 'send', side: sd, mon: monView(nm) }); ev.push({ k: 'msg', text: '{' + sd + '|Go, ' + nameOf(nm) + '!|' + me.name + ' sent out ' + nameOf(nm) + '!}' });
+    if (!pv.A.need && !pv.B.need) { pv.A.choice = pv.B.choice = null; pv.turn++; }
+    return { events: ev, resolved: true };
+  }
+  if (me.choice) return { error: 'Waiting for your opponent.' };
+  if (foe.need) return { error: 'Your opponent is choosing a replacement.' };
+  const P = me.party[me.active];
+  if (a.a === 'move') {
+    if (!P.moves.some(x => x.pp > 0)) me.choice = { a: 'move', i: 'struggle' };
+    else { if (!Number.isInteger(a.i) || !P.moves[a.i]) return { error: 'Pick a move.' }; if (P.moves[a.i].pp <= 0) return { error: 'No PP left for that move!' }; me.choice = { a: 'move', i: a.i }; }
+  } else if (a.a === 'switch') {
+    const nm = me.party[a.i]; if (!nm || nm.hp <= 0 || a.i === me.active) return { error: 'That monster cannot battle.' };
+    me.choice = { a: 'switch', i: a.i };
+  } else return { error: 'Unknown action.' };
+  if (!(pv.A.choice && pv.B.choice)) return { events: [], resolved: false };
+  return pvpResolve(pv);
+}
+function pvpResolve(pv) {
+  const ev = [];
+  const b = { kind: 'pvp', foe: pv.B.party, foeIdx: pv.B.active, active: pv.A.active, stages: { p: pv.A.stages, f: pv.B.stages }, part: [], phase: 'act', over: false, turn: pv.turn, trainer: { name: pv.B.name } };
+  const u = { mon: { party: pv.A.party, items: {}, dex: { seen: {}, caught: {} } }, battle: b };
+  const S2 = { p: 'A', f: 'B' };
+  const faintCheck = () => {
+    for (const sd of ['p', 'f']) {
+      const m = sd === 'p' ? activeP(u) : activeF(b), S = S2[sd];
+      if (m.hp > 0 || pv[S].need || pv.over) continue;
+      ev.push({ k: 'faint', side: sd }); ev.push({ k: 'msg', text: '{' + sd + ':' + nameOf(m) + '} fainted!' });
+      if (!alive(pv[S].party).length) { pv.over = true; pv.winner = other(S); ev.push({ k: 'msg', text: pv[pv.winner].name + ' wins the battle!' }); ev.push({ k: 'end', winner: pv.winner }); }
+      else pv[S].need = true;
+    }
+  };
+  // switches happen first
+  for (const S of ['A', 'B']) {
+    const ch = pv[S].choice, sd = S === 'A' ? 'p' : 'f';
+    if (ch.a !== 'switch') continue;
+    const nm = pv[S].party[ch.i];
+    pv[S].active = ch.i; pv[S].stages = freshStages();
+    if (S === 'A') { b.active = ch.i; b.stages.p = pv.A.stages; } else { b.foeIdx = ch.i; b.stages.f = pv.B.stages; }
+    ev.push({ k: 'send', side: sd, mon: monView(nm) }); ev.push({ k: 'msg', text: '{' + sd + '|Come back! Go, ' + nameOf(nm) + '!|' + pv[S].name + ' sent out ' + nameOf(nm) + '!}' });
+  }
+  const mv = [];
+  for (const S of ['A', 'B']) if (pv[S].choice.a === 'move') mv.push([S === 'A' ? 'p' : 'f', pv[S].choice.i]);
+  if (mv.length === 2) {
+    const pr = x => prio(u, b, x[0], x[1]);
+    const p0 = pr(mv[0]), p1 = pr(mv[1]);
+    const s0 = eff(activeP(u), 'p', b, 'spe'), s1 = eff(activeF(b), 'f', b, 'spe');
+    const aFirst = p0 !== p1 ? p0 > p1 : s0 !== s1 ? s0 > s1 : rnd(2) === 0;
+    if (!aFirst) mv.reverse();
+  }
+  for (const [sd, slot] of mv) {
+    if (pv.over) break;
+    if ((sd === 'p' ? activeP(u) : activeF(b)).hp <= 0) continue;
+    useMove(u, b, sd, slot, ev);
+    faintCheck();
+    if (pv.over || pv.A.need || pv.B.need) break;
+  }
+  if (!pv.over && !pv.A.need && !pv.B.need) { residual(u, b, ev); faintCheck(); }
+  pv.A.active = b.active; pv.B.active = b.foeIdx;
+  pv.A.choice = pv.B.choice = null;
+  if (!pv.over && !pv.A.need && !pv.B.need) pv.turn++;
+  return { events: ev, resolved: true };
+}
+function pvpForfeit(pv, S) {
+  if (pv.over) return { events: [] };
+  pv.over = true; pv.winner = other(S);
+  return { events: [{ k: 'msg', text: pv[S].name + ' left the battle!' }, { k: 'msg', text: pv[pv.winner].name + ' wins the battle!' }, { k: 'end', winner: pv.winner }], resolved: true };
+}
+// auto-pick when a player runs out of time
+function pvpAuto(pv, S) {
+  const me = pv[S];
+  if (me.need) { const i = firstAlive(me.party); return pvpAct(pv, S, { a: 'switch', i }); }
+  const P = me.party[me.active], usable = P.moves.map((m, i) => ({ m, i })).filter(x => x.m.pp > 0);
+  return pvpAct(pv, S, { a: 'move', i: usable.length ? usable[rnd(usable.length)].i : 0 });
+}
+module.exports = { pvpNew, pvpView, pvpFlip, pvpAct, pvpForfeit, pvpAuto, ensureMon, makeMon, monView, startWild, startTrainer, act, view, healAll, rollWild, stats, maxHp, PARTY_MAX, levelUp };

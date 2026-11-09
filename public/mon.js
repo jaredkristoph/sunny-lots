@@ -12,6 +12,56 @@ window.MonUI = function (ctx) {
   const stBadge = s => s && ST[s] ? h('span', { style: 'background:' + ST[s][1] + ';color:#fff;border-radius:6px;padding:0 5px;font-size:10px;font-weight:900;margin-left:4px' }, ST[s][0]) : null;
   const spr = (id, px, shiny, flip) => S.img(id, px, shiny, flip);
 
+  // ---------- stat radar (hexagon) ----------
+  const SK = ['hp', 'atk', 'def', 'spa', 'sdf', 'spe'], SL = ['HP', 'ATK', 'DEF', 'SP.A', 'SP.D', 'SPD'];
+  function radar(vals, caps, size, nat, col) {
+    const NS = 'http://www.w3.org/2000/svg', c = size / 2, R = size * .34, el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    const svg = el('svg', { width: size, height: size, viewBox: '0 0 ' + size + ' ' + size, style: 'max-width:100%' });
+    const pt = (i, f) => { const a = -Math.PI / 2 + i * Math.PI / 3; return [c + Math.cos(a) * R * f, c + Math.sin(a) * R * f]; };
+    for (const f of [.25, .5, .75, 1]) svg.append(el('polygon', { points: SK.map((_, i) => pt(i, f).join(',')).join(' '), fill: f === 1 ? '#fff8e6' : 'none', stroke: '#d9c9a3', 'stroke-width': 1 }));
+    SK.forEach((_, i) => svg.append(el('line', { x1: c, y1: c, x2: pt(i, 1)[0], y2: pt(i, 1)[1], stroke: '#e6d9b8', 'stroke-width': 1 })));
+    svg.append(el('polygon', { points: SK.map((k, i) => pt(i, Math.max(.04, Math.min(1, vals[k] / caps[k]))).join(',')).join(' '), fill: col + '66', stroke: col, 'stroke-width': 2.5, 'stroke-linejoin': 'round' }));
+    SK.forEach((k, i) => {
+      const [x, y] = pt(i, 1.2), t = el('text', { x, y: y - 2, 'text-anchor': 'middle', 'font-size': size * .058, 'font-weight': 800, fill: nat && nat.up === k ? '#2b8a3e' : nat && nat.down === k ? '#e03131' : '#5c4a2a' });
+      t.textContent = SL[i] + (nat && nat.up === k ? ' ▲' : nat && nat.down === k ? ' ▼' : ''); svg.append(t);
+      const v = el('text', { x, y: y + size * .06, 'text-anchor': 'middle', 'font-size': size * .062, 'font-weight': 900, fill: '#2b2418' }); v.textContent = vals[k]; svg.append(v);
+    });
+    return svg;
+  }
+  const capsAt = lv => M.calcStats({ base: { hp: 150, atk: 150, def: 150, spa: 150, sdf: 150, spe: 150 } }, lv, null, 20);
+
+  // ---------- world map ----------
+  function openMap() {
+    openModal('🗺 Map', () => {
+      const mo = me().mon, badges = new Set(mo.badges || []), caught = new Set(mo.dex.caughtIds || []), SC = 3, W = M.WORLD_W * SC, H = 66 * SC;
+      const cv = h('canvas', { width: W, height: H + 34, style: 'display:block;border-radius:8px' }), g = cv.getContext('2d');
+      g.fillStyle = '#9fd36a'; g.fillRect(0, 0, W, H); g.fillStyle = '#7fbe4f'; for (let i = 0; i < 40; i++) g.fillRect(((i * 97) % M.WORLD_W) * SC, ((i * 53) % 66) * SC, 14, 8);
+      g.fillStyle = '#e8d9a8'; g.fillRect(0, 0, 74 * SC, H); g.strokeStyle = '#8d8878'; g.lineWidth = 4; g.strokeRect(2, 2, 74 * SC - 4, H - 4);
+      g.fillStyle = '#5c4a2a'; g.font = 'bold 15px sans-serif'; g.fillText('☀ Sunny Lots', 10, 24); g.font = '12px sans-serif'; g.fillText('(farms, shops, casino)', 10, 40);
+      g.fillStyle = '#d9c391'; g.fillRect(74 * SC, 31 * SC, (M.WORLD_W - 74) * SC, 2 * SC);              // champion road
+      g.fillStyle = '#bda772'; for (const k of Object.keys(M.ROUTES)) { const r = M.ROUTES[k]; for (const [gx, gy, gw, gh] of r.grass) { g.fillStyle = '#5aa63a'; g.fillRect(gx * SC, gy * SC, gw * SC, gh * SC); } }
+      g.fillStyle = '#d9c391'; for (let k = 2; k <= 8; k++) g.fillRect((M.routeX0(k) + 10) * SC, 6 * SC, 2 * SC, 52 * SC);
+      g.fillRect(94 * SC, 8 * SC, 2 * SC, 50 * SC);
+      g.fillStyle = '#2f6b1f'; g.font = 'bold 13px sans-serif';
+      for (let k = 1; k <= 8; k++) { const x = (k === 1 ? 80 : M.routeX0(k) + 2) * SC; g.fillText('Route ' + k, x, 14 * SC + 14); g.font = '11px sans-serif'; g.fillStyle = '#245317'; g.fillText('Lv ' + M.ROUTES['r' + k].levels.join('–'), x, 14 * SC + 28); g.font = 'bold 13px sans-serif'; g.fillStyle = '#2f6b1f'; }
+      for (const t of M.TOWNS) {
+        const gym = M.GYMS[t.k - 1], got = badges.has(gym.badge);
+        g.fillStyle = '#efe6d2'; g.fillRect(t.x0 * SC, 18 * SC, 16 * SC, 28 * SC); g.strokeStyle = '#8d8878'; g.lineWidth = 2; g.strokeRect(t.x0 * SC, 18 * SC, 16 * SC, 28 * SC);
+        g.fillStyle = '#e0585a'; g.fillRect(t.center.x * SC, t.center.y * SC, t.center.w * SC, t.center.h * SC);
+        g.fillStyle = gym.col; g.globalAlpha = got ? 1 : .45; g.fillRect(gym.x * SC, gym.y * SC, gym.w * SC, gym.h * SC); g.globalAlpha = 1;
+        g.fillStyle = '#222'; g.font = 'bold 12px sans-serif'; g.textAlign = 'center'; g.fillText(t.name, (t.x0 + 8) * SC, 17 * SC);
+        g.font = '11px sans-serif'; g.fillText((got ? '🏅 ' : '') + gym.type + ' Gym', (t.x0 + 8) * SC, 48 * SC + 11); g.textAlign = 'left';
+      }
+      for (const L of M.LEGENDS) if (!caught.has(L.sp)) { g.fillStyle = '#9c36b5'; g.font = 'bold 18px sans-serif'; g.textAlign = 'center'; g.fillText('★', L.x * SC, L.y * SC + 14); g.font = '10px sans-serif'; g.fillText(L.badges + '🏅', L.x * SC, L.y * SC + 26); g.textAlign = 'left'; }
+      const pos = ctx.getPos(); g.fillStyle = '#fff'; g.beginPath(); g.arc(pos.x * SC, pos.y * SC, 9, 0, 7); g.fill(); g.fillStyle = '#e03131'; g.beginPath(); g.arc(pos.x * SC, pos.y * SC, 6, 0, 7); g.fill();
+      g.fillStyle = '#e03131'; g.font = 'bold 12px sans-serif'; g.textAlign = 'center'; g.fillText('You', pos.x * SC, pos.y * SC - 12); g.textAlign = 'left';
+      g.fillStyle = '#3b2a1a'; g.font = 'bold 13px sans-serif'; g.fillText('🏅 Badges ' + badges.size + '/8   ·   🔴 Bitmon Centers   ·   ★ legendary shrine (unopened)', 8, H + 22);
+      const wrap = h('div', { style: 'overflow:auto;max-height:70vh;max-width:100%;border:3px solid #e3c88a;border-radius:10px' }, cv);
+      setTimeout(() => { wrap.scrollLeft = Math.max(0, pos.x * SC - wrap.clientWidth / 2); }, 30);
+      return h('div', { class: 'center', style: 'gap:6px' }, wrap, h('div', { class: 'muted', style: 'font-size:12px' }, 'Scroll sideways. Follow Champion Road east: one gym per town. Red squares are Bitmon Centers (free healing).'));
+    });
+  }
+
   // ---------- starter pick ----------
   const STARTERS = [{ id: M.BY_NAME.Embrix, tag: '🔥 Fire', blurb: 'Fast and fierce. Hits hard with special Flame moves.' }, { id: M.BY_NAME.Mossling, tag: '🌿 Grass', blurb: 'Balanced and sturdy. Great all-rounder.' }, { id: M.BY_NAME.Ripplet, tag: '💧 Water', blurb: 'Tough and calm. Hard to knock down.' }];
   function openStarter() {
@@ -74,7 +124,8 @@ window.MonUI = function (ctx) {
     return h('div', { class: 'center', style: 'gap:6px' },
       h('button', { class: 'btn sm', style: 'align-self:flex-start', onclick: () => { sel = null; ctx.refresh(); } }, '← Back'),
       spr(m.sp, 112, m.shiny), h('div', { style: 'font-size:20px;font-weight:900' }, '#' + m.sp + ' ' + sp.name + ' Lv' + m.lv), h('div', {}, sp.types.map(typeChip)),
-      h('div', { class: 'row', style: 'gap:4px;justify-content:center;flex-wrap:wrap' }, stat('hp', 'HP'), stat('atk', 'ATK'), stat('def', 'DEF'), stat('spa', 'SP.A'), stat('sdf', 'SP.D'), stat('spe', 'SPD')),
+      (() => { const nt = M.NATURES[m.nature | 0]; return h('div', { style: 'font-size:13px' }, h('b', {}, nt.name + ' nature'), nt.up ? h('span', {}, ' · ', h('b', { style: 'color:#2b8a3e' }, '+' + SL[SK.indexOf(nt.up)]), ' ', h('b', { style: 'color:#e03131' }, '−' + SL[SK.indexOf(nt.down)])) : h('span', { class: 'muted' }, ' · balanced'), h('span', { class: 'muted' }, ' · potential ' + Math.round((m.ivSum || 0) / 1.92) + '%')); })(),
+      radar(m.stats, capsAt(m.lv), 260, M.NATURES[m.nature | 0], M.TYPE_COL[sp.types[0]]),
       h('div', { class: 'muted', style: 'font-size:12px' }, 'EXP ' + (m.xp - m.xpCur) + ' / ' + (m.xpNext - m.xpCur) + (sp.evo ? ' · evolves at Lv' + sp.evo : '')),
       h('div', { style: 'width:100%;text-align:left' }, h('b', {}, 'Moves'), m.moves.map(mv => { const d = M.MOVES[mv.id]; return h('div', { class: 'lrow', style: 'padding:4px 8px' }, typeChip(d.type), h('b', { class: 'grow' }, d.name), h('span', { class: 'muted', style: 'font-size:12px' }, (d.cat === 'st' ? 'Status' : 'Pow ' + d.pow + (d.cat === 'p' ? ' · Phys' : ' · Spec')) + ' · PP ' + mv.pp + '/' + mv.max)); })),
       h('div', { class: 'row', style: 'gap:6px;justify-content:center;flex-wrap:wrap' }, inp, h('button', { class: 'btn sm', onclick: sv }, 'Rename'),
@@ -87,7 +138,7 @@ window.MonUI = function (ctx) {
     send({ t: 'mon_box' });
     openModal('🐾 Bitmonsters', () => {
       const mo = me().mon;
-      const tabsEl = h('div', { class: 'tabs' }, [['party', '🐾 Party'], ['box', '📦 Box (' + mo.boxCount + ')'], ['dex', '📖 Dex ' + mo.dex.caught + '/' + M.COUNT], ['bag', '🎒 Items']].map(([id, l]) => h('button', { class: 'tab' + (tab === id ? ' on' : ''), onclick: () => { tab = id; sel = null; ctx.refresh(); } }, l)));
+      const tabsEl = h('div', { class: 'tabs' }, [['party', '🐾 Party'], ['box', '📦 Box (' + mo.boxCount + ')'], ['dex', '📖 Dex ' + mo.dex.caught + '/' + M.COUNT], ['bag', '🎒 Items'], ['badge', '🏅 Badges ' + (mo.badges || []).length + '/8']].map(([id, l]) => h('button', { class: 'tab' + (tab === id ? ' on' : ''), onclick: () => { tab = id; sel = null; ctx.refresh(); } }, l)));
       let body;
       if (tab === 'party') {
         const m = sel && mo.party.find(x => x.id === sel);
@@ -103,6 +154,10 @@ window.MonUI = function (ctx) {
           if (s && !c) im.style.filter = 'brightness(0)';
           return h('div', { title: c ? sp.name : s ? '???' : '', style: 'text-align:center;font-size:10px;background:' + (c ? '#fff' : '#f1f3f5') + ';border-radius:8px;padding:2px', onclick: () => { if (c || s) dexInfo(sp, c); } }, im, h('div', {}, '#' + sp.id), h('div', { style: 'font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, c ? sp.name : '???'));
         }));
+      } else if (tab === 'badge') {
+        const have = new Set(mo.badges || []);
+        body = h('div', { class: 'center', style: 'gap:8px' }, h('div', { style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%' }, M.GYMS.map(g => h('div', { style: 'text-align:center;padding:8px 2px;border-radius:12px;border:3px solid ' + (have.has(g.badge) ? g.col : '#ddd') + ';background:' + (have.has(g.badge) ? '#fff' : '#f1f3f5') }, h('div', { style: 'width:44px;height:44px;margin:0 auto;border-radius:50%;background:' + (have.has(g.badge) ? 'radial-gradient(circle at 35% 30%,#fff8,' + g.col + ' 55%,#0003)' : '#ced4da') + ';box-shadow:inset 0 0 0 3px #0002;display:flex;align-items:center;justify-content:center;font-size:22px' }, have.has(g.badge) ? '🏅' : '🔒'), h('div', { style: 'font-weight:800;font-size:12px;margin-top:4px' }, g.badge), h('div', { class: 'muted', style: 'font-size:10px' }, g.town + ' · ' + g.type)))),
+          h('div', { class: 'muted' }, 'Friendly battles: ' + ((mo.pvp && mo.pvp.w) || 0) + ' wins · ' + ((mo.pvp && mo.pvp.l) || 0) + ' losses'), h('div', { class: 'muted', style: 'font-size:12px' }, 'Beat each town\'s gym leader in order. Legendary shrines open with more badges.'));
       } else {
         const its = Object.entries(mo.items);
         body = its.length ? h('div', { class: 'list' }, its.map(([k, n]) => { const o = M.ORBS[k], p = M.POTIONS[k]; const it = o || p; return h('div', { class: 'lrow' }, o ? h('div', { style: 'width:28px;height:28px;border-radius:50%;border:3px solid #222;background:linear-gradient(#' + 'fff 48%,#222 48%,#222 54%,' + o.color + ' 54%);' }) : h('div', { style: 'font-size:24px' }, p.revive ? '💫' : p.pp ? '🔷' : p.cure ? '💊' : '🧪'), h('div', { class: 'grow' }, h('b', {}, it.name), h('div', { class: 'muted', style: 'font-size:12px' }, it.desc)), h('b', {}, '×' + n), p ? h('button', { class: 'btn sm', onclick: () => useItem(k) }, 'Use') : null); })) : h('div', { class: 'muted' }, 'No items. Buy some at the Bitmon Center.');
@@ -112,6 +167,7 @@ window.MonUI = function (ctx) {
   }
   function dexInfo(sp, caught) {
     openModal('#' + sp.id + ' ' + (caught ? sp.name : '???'), () => h('div', { class: 'center', style: 'gap:6px' }, spr(sp.id, 128), h('div', {}, sp.types.map(typeChip)),
+      caught ? radar(sp.base, { hp: 150, atk: 150, def: 150, spa: 150, sdf: 150, spe: 150 }, 240, null, M.TYPE_COL[sp.types[0]]) : null,
       caught ? h('div', { class: 'muted' }, 'Base stats — HP ' + sp.base.hp + ' · ATK ' + sp.base.atk + ' · DEF ' + sp.base.def + ' · SP.A ' + sp.base.spa + ' · SP.D ' + sp.base.sdf + ' · SPD ' + sp.base.spe) : h('div', { class: 'muted' }, 'Catch it to learn more.'),
       sp.legend ? h('div', { style: 'color:#9c36b5;font-weight:900' }, '★ Legendary') : sp.rare ? h('div', { style: 'color:#9c36b5;font-weight:900' }, '★ Rare') : null,
       h('button', { class: 'btn sm', onclick: () => openParty('dex') }, '← Dex')));
@@ -140,11 +196,34 @@ window.MonUI = function (ctx) {
       h('button', { class: 'btn green', onclick: () => { if (i < n.lines.length - 1) { i++; ctx.refresh(); } else closeModal(); } }, i < n.lines.length - 1 ? 'Next ▸' : 'Bye!')));
   }
   function challenge(tr) {
-    const beaten = me().mon.beaten.includes(tr.id);
-    openModal(tr.name, () => h('div', { class: 'center', style: 'gap:8px' }, h('div', { style: 'font-size:17px' }, '“' + tr.pre + '”'),
-      h('div', { class: 'muted' }, tr.team.length + ' monster' + (tr.team.length > 1 ? 's' : '') + ' · ' + (beaten ? 'rematch pays $' + Math.floor(tr.reward / 4) : 'prize $' + tr.reward)),
-      h('button', { class: 'btn green', onclick: () => { closeModal(); send({ t: 'mon_trainer', id: tr.id }); } }, '⚔ Battle!'), h('button', { class: 'btn', onclick: closeModal }, 'Not now')));
+    const mo = me().mon, beaten = mo.beaten.includes(tr.id), gym = tr.gym ? M.GYMS.find(x => x.id === tr.gym) : null;
+    const prev = gym && M.GYMS[gym.n - 2], locked = prev && !mo.badges.includes(prev.badge);
+    openModal(gym ? '🏅 ' + gym.name : tr.name, () => h('div', { class: 'center', style: 'gap:8px' },
+      gym ? h('div', { style: 'font-weight:900;color:' + gym.col }, gym.type + '-type gym · ' + gym.town) : null,
+      h('div', { style: 'font-weight:800' }, tr.name), h('div', { style: 'font-size:17px' }, '“' + tr.pre + '”'),
+      h('div', { class: 'muted' }, tr.team.length + ' monster' + (tr.team.length > 1 ? 's' : '') + (gym ? ' · top level ' + Math.max(...tr.team.map(t => t[1])) : '') + ' · ' + (beaten ? 'rematch pays $' + Math.floor(tr.reward / 4) : 'prize $' + tr.reward + (gym ? ' + ' + gym.badge : ''))),
+      locked ? h('div', { style: 'color:#e03131;font-weight:800' }, '🔒 Needs the ' + prev.badge + ' first.') : null,
+      h('button', { class: 'btn green', disabled: !!locked, onclick: () => { closeModal(); send({ t: 'mon_trainer', id: tr.id }); } }, '⚔ Battle!'), h('button', { class: 'btn', onclick: closeModal }, 'Not now')));
   }
+  function shrine(L) {
+    const mo = me().mon, sp = M.SPECIES[L.sp], have = mo.dex.caughtIds.includes(L.sp), need = L.badges - mo.badges.length;
+    openModal('✨ Ancient Shrine', () => h('div', { class: 'center', style: 'gap:8px' }, h('div', { style: 'font-size:40px' }, '⛩'),
+      have ? h('div', {}, 'The shrine is quiet. You already hold ' + sp.name + '.') : need > 0 ? h('div', {}, 'The shrine is sealed. It needs ', h('b', {}, L.badges + ' badges'), ' (you have ' + mo.badges.length + ').') : h('div', {}, 'Something powerful stirs inside... a legendary bitmonster, level ' + L.lv + '.'),
+      !have && need <= 0 ? h('button', { class: 'btn green', onclick: () => { closeModal(); send({ t: 'mon_legend', sp: L.sp }); } }, 'Awaken it') : null, h('button', { class: 'btn', onclick: closeModal }, 'Leave')));
+  }
+  // friendly battles
+  let invEl = null;
+  function invite(from) {
+    if (invEl) invEl.remove();
+    const done = ok => { if (invEl) invEl.remove(); invEl = null; send({ t: 'pvp_reply', ok }); };
+    invEl = h('div', { style: 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:60;background:#fffbe6;border:3px solid #f59f00;border-radius:12px;padding:10px 14px;box-shadow:0 4px 14px #0004;text-align:center' },
+      h('div', { style: 'font-weight:900' }, '⚔ ' + from + ' challenges you to a friendly battle!'), h('div', { class: 'muted', style: 'font-size:12px' }, 'No monsters are lost — both teams are fully healed for the fight.'),
+      h('div', { class: 'row', style: 'gap:8px;justify-content:center;margin-top:6px' }, h('button', { class: 'btn green', onclick: () => done(true) }, 'Accept'), h('button', { class: 'btn', onclick: () => done(false) }, 'Decline')));
+    document.body.append(invEl);
+    setTimeout(() => { if (invEl && invEl.isConnected && invEl.dataset.x !== '1') { /* expires server-side */ } }, 30000);
+    setTimeout(() => { if (invEl) { invEl.remove(); invEl = null; } }, 30000);
+  }
+  const challengePlayer = name => { send({ t: 'pvp_challenge', to: name }); };
 
   // ---------- battle ----------
   let el = null, B = null, token = 0;
@@ -242,13 +321,14 @@ window.MonUI = function (ctx) {
     if (v.phase === 'over') {
       u.menu.style.gridTemplateColumns = '1fr';
       const res = v.result;
-      u.text.textContent = res === 'win' ? '🏆 You won the battle!' : res === 'caught' ? '🎉 Caught it!' : res === 'run' ? 'You got away.' : '💀 You blacked out...';
+      u.text.textContent = res === 'win' ? '🏆 You won the battle!' : res === 'caught' ? '🎉 Caught it!' : res === 'run' ? 'You got away.' : v.kind === 'pvp' ? 'You lost the battle. Good fight!' : '💀 You blacked out...';
       u.menu.append(btn('Continue ▸', () => { send({ t: 'mb_act', a: 'close' }); }, null, 'background:#2f9e44')); return;
     }
     u.menu.style.gridTemplateColumns = '1fr 1fr';
+    if (v.phase === 'wait') { u.text.textContent = 'Waiting for your opponent...'; return; }
     if (v.phase === 'switch') { u.text.textContent = 'Choose your next monster!'; partyMenu(true); return; }
     u.text.textContent = 'What will ' + v.me.name + ' do?';
-    u.menu.append(btn('⚔ Fight', fightMenu, null, 'background:#e03131'), btn('🎒 Bag', bagMenu, null, 'background:#f08c00'), btn('🐾 Monsters', () => partyMenu(false), null, 'background:#2f9e44'), btn('🏃 Run', () => send({ t: 'mb_act', a: 'run' }), v.kind === 'wild' ? null : "can't run", 'background:#4263eb', v.kind !== 'wild'));
+    u.menu.append(btn('⚔ Fight', fightMenu, null, 'background:#e03131'), v.kind === 'pvp' ? null : btn('🎒 Bag', bagMenu, null, 'background:#f08c00'), btn('🐾 Monsters', () => partyMenu(false), null, 'background:#2f9e44'), btn('🏃 Run', () => send({ t: 'mb_act', a: 'run' }), v.kind === 'wild' ? null : "can't run", 'background:#4263eb', v.kind !== 'wild'));
   }
   function back(fn) { return h('button', { onclick: fn || menu, style: 'grid-column:1/-1;background:#868e96' }, '◂ Back'); }
   function fightMenu() {
@@ -283,18 +363,18 @@ window.MonUI = function (ctx) {
     closeModal();
     token++;
     if (el) el.remove();
-    B = { view: m.view, shown: { p: Object.assign({}, m.view.me), f: Object.assign({}, m.view.foe) }, busy: true, result: null, fSp: null, pSp: null };
+    B = { kind: m.view.kind, view: m.view, shown: { p: Object.assign({}, m.view.me), f: Object.assign({}, m.view.foe) }, busy: true, result: null, fSp: null, pSp: null };
     syncKeys(); B.fSp = null; B.pSp = null;
     battleEl(); paint();
     ctx.onBattle && ctx.onBattle(true);
     play(m.events || [], m.view);
   }
   function turn(m) { if (!B) return; play(m.events || [], m.view); }
-  function closed() { token++; if (el) { el.remove(); el = null; } const res = B && B.result; B = null; ctx.onBattle && ctx.onBattle(false, res); }
+  function closed() { token++; if (el) { el.remove(); el = null; } const res = B && (B.kind === 'pvp' ? 'pvp' : B.result); B = null; ctx.onBattle && ctx.onBattle(false, res); }
   function err(msg) { toast(msg, true); if (B && B.ui && !B.busy) menu(); }
 
   return {
-    openStarter, openDaily, openParty, openCenter, talk, challenge, dailyOk, closed, start, turn, err,
+    challengePlayer, invite, shrine, openMap, openStarter, openDaily, openParty, openCenter, talk, challenge, dailyOk, closed, start, turn, err,
     onBox: m => { boxCache = m.box; if (ctx.isModalOpen()) ctx.refresh(); },
     inBattle: () => !!B,
   };

@@ -274,11 +274,13 @@ for (let ty = 0; ty < WORLD.height; ty++) {
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => set.has((x + dx) + ',' + (y + dy)) || x + dx < 0 || y + dy >= WORLD.height).length >= 2;
   });
 }
-WORLD.width = 122;   // town (x<74) + Route 1 to the east
+const MonData = require('./public/monsters.js');
+WORLD.width = MonData.WORLD_W;   // Sunny Lots (x<74) + Routes 1-8 and the 8 gym towns to the east
 // Sunny Lots stone wall: x 0..73.6, y 0..65.6. Gates: east (open, Route 1) and south (closed for now).
 WORLD.wall = { x1: 73.6, y1: 65.6, t: .6, gates: { e: { y0: 30, y1: 33 }, s: { x0: 44, x1: 47, closed: true } } };
 // Bitmon Center: heal + Bit Mart, just inside the east gate
 WORLD.center = { x: 66, y: 25, w: 5, h: 4 };
+WORLD.centers = MonData.CENTERS;
 WORLD.height = 66;
 
 // Interior furniture only — walls/roof come from the cottage shell voxel

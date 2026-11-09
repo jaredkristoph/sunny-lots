@@ -333,7 +333,7 @@ const monState = u => {
   return {
     starter: m.starter, party: m.party.map(x => Battle.monView(x, true)), boxCount: m.box.length, items: m.items,
     dex: { seen: Object.keys(m.dex.seen).length, caught: Object.keys(m.dex.caught).length, caughtIds: Object.keys(m.dex.caught).map(Number), seenIds: Object.keys(m.dex.seen).map(Number) },
-    daily: { claimed, streak: m.daily.streak, idx: (Math.max(1, nextStreak) - 1) % 7, nextStreak }, badges: m.badges, beaten: Object.keys(m.beaten), inBattle: !!u.battle,
+    daily: { claimed, streak: m.daily.streak, idx: (Math.max(1, nextStreak) - 1) % 7, nextStreak }, badges: m.badges, beaten: Object.keys(m.beaten), inBattle: !!u.battle, pvp: m.pvp || { w: 0, l: 0 },
   };
 };
 const meView = u => ({
@@ -449,6 +449,41 @@ function spawnFor(u) {
   return { x: C.WORLD.shopDoor.x * T, y: C.WORLD.shopDoor.y * T };
 }
 
+// ---------- player-vs-player battles ----------
+function pvpSendAll(pv, res) {
+  for (const S of ['A', 'B']) { const pc = pv.players[S]; if (pc && pc.pvp && pc.pvp.pv === pv) send(pc.ws, { t: 'mb_turn', events: Battle.pvpFlip(res.events || [], S), view: Battle.pvpView(pv, S) }); }
+}
+function pvpTimer(pv) {
+  clearTimeout(pv.timer);
+  if (pv.over) return;
+  pv.timer = setTimeout(() => {       // slow players get an automatic move
+    if (pv.over) return;
+    for (const S of ['A', 'B']) { const v = Battle.pvpView(pv, S); if (v.phase === 'act' || v.phase === 'switch') { const r = Battle.pvpAuto(pv, S); if (!r.error) pvpSendAll(pv, r); } }
+    pvpTimer(pv);
+  }, 45000);
+}
+function pvpEnd(c) {
+  const pr = c.pvp; if (!pr) return;
+  c.pvp = null;
+  const pv = pr.pv; if (!pv.players.A.pvp && !pv.players.B.pvp) clearTimeout(pv.timer);
+}
+function pvpHandle(c, m) {
+  const { pv, S } = c.pvp;
+  if (pv.over) {            // finished: this player acknowledges and leaves the battle screen
+    if (m.a === 'close') {
+      const first = !pv.recorded; pv.recorded = true;
+      if (first) { const w = pv.players[pv.winner], l = pv.players[pv.winner === 'A' ? 'B' : 'A']; for (const [x, k] of [[w, 'w'], [l, 'l']]) { x.u.mon.pvp = x.u.mon.pvp || { w: 0, l: 0 }; x.u.mon.pvp[k]++; } touch(); sendMe(w); sendMe(l); }
+      pvpEnd(c); send(c.ws, { t: 'mb_closed' });
+    }
+    return;
+  }
+  if (Date.now() - (c.lastMb || 0) < 150) return;
+  c.lastMb = Date.now();
+  const r = Battle.pvpAct(pv, S, { a: m.a, i: m.i });
+  if (r.error) return send(c.ws, { t: 'mb_err', msg: r.error });
+  if (r.resolved) { pvpSendAll(pv, r); pvpTimer(pv); }
+  else send(c.ws, { t: 'mb_turn', events: [], view: Battle.pvpView(pv, S) });
+}
 wss.on('connection', ws => {
   let c = null;
   const err = msg => send(ws, { t: 'err', msg });
@@ -532,7 +567,7 @@ wss.on('connection', ws => {
       }
       case 'mon_encounter': {
         const mo = u.mon;
-        if (u.battle || !mo.starter) return;
+        if (u.battle || c.pvp || !mo.starter) return;
         if (Date.now() - (c.lastEnc || 0) < 2500) return;
         const route = Mon.ROUTES[m.route]; if (!route) return;
         const tx = c.x / T, ty = c.y / T;
@@ -544,14 +579,53 @@ wss.on('connection', ws => {
         break;
       }
       case 'mon_trainer': {
-        const tr = Mon.TRAINERS.find(x => x.id === m.id); if (!tr || u.battle || !u.mon.starter) return;
+        const tr = Mon.TRAINERS.find(x => x.id === m.id); if (!tr || u.battle || c.pvp || !u.mon.starter) return;
         if (Math.hypot(c.x / T - tr.x, c.y / T - tr.y) > 9) return err('Walk closer to challenge them.');
+        if (tr.gym) { const g = Mon.GYMS.find(x => x.id === tr.gym), prev = Mon.GYMS[g.n - 2]; if (prev && !u.mon.badges.includes(prev.badge)) return err('You need the ' + prev.badge + ' first.'); }
         const r = Battle.startTrainer(u, tr);
         if (r.error) return err(r.error);
         c.lastEnc = Date.now(); touch(); sendMe(c); send(ws, { t: 'mb_start', events: r.events, view: Battle.view(u) });
         break;
       }
+      case 'mon_legend': {
+        const mo = u.mon, L = Mon.LEGENDS.find(x => x.sp === Number(m.sp));
+        if (!L || u.battle || c.pvp || !mo.starter) return;
+        if (mo.badges.length < L.badges) return err('The shrine stays silent... you need ' + L.badges + ' badges.');
+        if (mo.dex.caught[L.sp]) return err('You already have ' + Mon.SPECIES[L.sp].name + '.');
+        if (Math.hypot(c.x / T - L.x, c.y / T - L.y) > 7) return err('Walk closer to the shrine.');
+        const r = Battle.startWild(u, L.sp, L.lv); if (r.error) return err(r.error);
+        r.events.unshift({ k: 'msg', text: 'The shrine glows... a legendary presence awakens!' });
+        touch(); sendMe(c); send(ws, { t: 'mb_start', events: r.events, view: Battle.view(u) });
+        break;
+      }
+      case 'pvp_challenge': {
+        const tk = String(m.to || '').toLowerCase(), t = online.get(tk);
+        if (!t || t === c) return err('That player is not online.');
+        const okp = x => x.u.mon.starter && x.u.mon.party.some(y => y.hp > 0) && !x.u.battle && !x.pvp;
+        if (!okp(c) || !okp(t)) return err('Both players need a healthy monster and must not be in a battle.');
+        if (Math.hypot(c.x - t.x, c.y - t.y) / T > 20) return err('Get closer to ' + t.u.name + ' to challenge them.');
+        if (t.invite && Date.now() - t.invite.at < 30000) return err(t.u.name + ' already has a pending challenge.');
+        t.invite = { from: c.u.name, at: Date.now() };
+        send(t.ws, { t: 'pvp_invite', from: c.u.name }); ok('Challenge sent to ' + t.u.name + '. Waiting for a reply...');
+        break;
+      }
+      case 'pvp_reply': {
+        const inv = c.invite; c.invite = null;
+        if (!inv || Date.now() - inv.at > 30000) return err('That challenge expired.');
+        const a = online.get(inv.from.toLowerCase());
+        if (!a) return err('That player left.');
+        if (!m.ok) { send(a.ws, { t: 'err', msg: c.u.name + ' declined your challenge.' }); break; }
+        const okp = x => x.u.mon.party.some(y => y.hp > 0) && !x.u.battle && !x.pvp;
+        if (!okp(a) || !okp(c)) return err('Battle cannot start right now.');
+        const pv = Battle.pvpNew(a.u.name, a.u.mon.party, c.u.name, c.u.mon.party);
+        pv.id = crypto.randomBytes(4).toString('hex'); pv.players = { A: a, B: c };
+        a.pvp = { pv, S: 'A' }; c.pvp = { pv, S: 'B' };
+        for (const S of ['A', 'B']) { const pc = pv.players[S]; send(pc.ws, { t: 'mb_start', events: [{ k: 'msg', text: 'Friendly battle against ' + pv[S === 'A' ? 'B' : 'A'].name + '!' }], view: Battle.pvpView(pv, S) }); }
+        pvpTimer(pv);
+        break;
+      }
       case 'mb_act': {
+        if (c.pvp) { pvpHandle(c, m); break; }
         if (Date.now() - (c.lastMb || 0) < 150) return;
         c.lastMb = Date.now();
         const r = Battle.act(db, u, { a: m.a, i: m.i, item: m.item });
@@ -564,8 +638,8 @@ wss.on('connection', ws => {
       case 'mb_resume': { if (u.battle) send(ws, { t: 'mb_start', events: [{ k: 'msg', text: 'Back in the battle!' }], view: Battle.view(u) }); break; }
       case 'mon_heal': case 'mon_buy': {
         if (u.battle) return err('Finish your battle first.');
-        const ctr = C.WORLD.center;
-        if (!ctr || Math.hypot(c.x / T - (ctr.x + ctr.w / 2), c.y / T - (ctr.y + ctr.h / 2)) > 9) return err('Go to the Bitmon Center first.');
+        if (c.pvp) return err('Finish your battle first.');
+        if (!C.WORLD.centers.some(ctr => Math.hypot(c.x / T - (ctr.x + ctr.w / 2), c.y / T - (ctr.y + ctr.h / 2)) <= 9)) return err('Go to a Bitmon Center first.');
         if (m.t === 'mon_heal') { Battle.healAll(u); touch(); sendMe(c); ok('Your monsters are fully healed!'); break; }
         const id = m.item, n = Math.max(1, Math.min(99, Math.floor(Number(m.n) || 1)));
         const it = Mon.ORBS[id] || Mon.POTIONS[id];
@@ -1121,6 +1195,7 @@ wss.on('connection', ws => {
   });
 
   ws.on('close', () => {
+    if (c && c.pvp) { const { pv, S } = c.pvp, O = S === 'A' ? 'B' : 'A', r = Battle.pvpForfeit(pv, S), opp = pv.players[O]; if (opp && opp.pvp && opp.pvp.pv === pv) send(opp.ws, { t: 'mb_turn', events: Battle.pvpFlip(r.events || [], O), view: Battle.pvpView(pv, O) }); pvpEnd(c); }
     if (c && online.get(c.key) === c) {
       online.delete(c.key);
       broadcast({ t: 'sys', text: c.u.name + ' left.' });

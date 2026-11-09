@@ -84,4 +84,11 @@ Sunny Lots is now a walled hub town. The **east gate** leads to **Route 1** (ope
 - **Bitmon Center** (inside the east side of town): free healing + Bit Mart. `🐾 Bitmon` button (or `M`): party, box, dex, items, nicknames.
 - **Admin → 🐾 Bitmonsters**: searchable list of all 151 with types, base stats, evolutions, full learnsets (level, power, accuracy, PP, effects) and where each is found.
 
-Coming in later phases: 8 gyms + badges, legendary encounters, player-vs-player battles, a much larger open world.
+
+
+## Phases 2–4
+- **Open world**: a 412-tile-wide map. Follow Champion Road east from Sunny Lots: Route 1 → Greenhollow → Route 2 → Marinport → … → Zenith City (8 routes, 8 towns). Each town has a Bitmon Center (free healing + Mart). `🗺 Map` (or `N`) shows the whole world, badges and your position.
+- **8 gyms & badges**: Leaf, Aqua, Volt, Flame, Stone, Toxic, Frost, Mind. Each needs the previous badge; leader teams scale from Lv 14 to Lv 56. Badges show in the `🐾 Bitmon → 🏅 Badges` tab.
+- **Natures & stats**: every monster has a random nature (+10% / −10% to two stats, or neutral) and random IVs. The monster page shows a radar chart of its stats.
+- **Legendaries**: 5 shrines at the north end of Routes 4–8 (3 / 4 / 5 / 6 / 8 badges). Each legendary can be caught once per player.
+- **Friendly PvP**: click another player (or use `🟢 online → ⚔ Battle`). They accept or decline; both teams are full-health copies, so nothing is lost. Both players pick a move each turn (45 s auto-move), and wins/losses are tracked.

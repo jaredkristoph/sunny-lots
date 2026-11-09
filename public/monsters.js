@@ -173,9 +173,19 @@
   }
   const COUNT = SPECIES.length - 1;
   function movesAt(sp, lv) { const pool = sp.learn.filter(x => x[0] <= lv).map(x => x[1]); return pool.slice(-4); }
-  function calcStats(sp, lv, iv) {
-    const o = {};
-    for (const k of STATS) { const b = sp.base[k], i = (iv && iv[k]) || 0; o[k] = k === 'hp' ? Math.floor((2 * b + i) * lv / 100) + lv + 10 : Math.floor((2 * b + i) * lv / 100) + 5; }
+  // 25 natures: each raises one stat by 10% and lowers another by 10% (5 are neutral). HP is never changed.
+  const NAT_STATS = ['atk', 'def', 'spa', 'sdf', 'spe'];
+  const NAT_NAMES = [['Reckless', 'Brutish', 'Rowdy', 'Plodding'], ['Guarded', 'Stubborn', 'Sturdy', 'Anchored'], ['Clever', 'Daring', 'Sharp', 'Dreamy'], ['Gentle', 'Serene', 'Patient', 'Wary'], ['Nimble', 'Hasty', 'Jaunty', 'Zippy']];
+  const NATURES = [];
+  NAT_STATS.forEach((up, ui) => { let j = 0; NAT_STATS.forEach((dn, di) => { if (ui === di) return; NATURES.push({ id: NATURES.length, name: NAT_NAMES[ui][j++], up, down: dn }); }); });
+  ['Steady', 'Plain', 'Easygoing', 'Mellow', 'Placid'].forEach(n => NATURES.push({ id: NATURES.length, name: n, up: null, down: null }));
+  function calcStats(sp, lv, iv, nature) {
+    const o = {}, nat = NATURES[nature | 0] || NATURES[20];
+    for (const k of STATS) {
+      const b = sp.base[k], i = (iv && iv[k]) || 0;
+      if (k === 'hp') { o[k] = Math.floor((2 * b + i) * lv / 100) + lv + 10; continue; }
+      o[k] = Math.floor((Math.floor((2 * b + i) * lv / 100) + 5) * (nat.up === k ? 1.1 : nat.down === k ? .9 : 1));
+    }
     return o;
   }
   const xpFor = lv => lv * lv * lv;      // total xp needed to be at level `lv`
@@ -244,6 +254,104 @@
     { id: 'n_kid', name: 'Kid Remy', x: 93, y: 33, look: 5, lines: ['I caught a Sparkit yesterday! It zapped my sandwich.', 'Trainers around here will battle you if you look at them. Eyes up!'] },
     { id: 'n_old', name: 'Old Wen', x: 112, y: 33, look: 6, lines: ['Eight gyms are said to lie beyond these fields...', 'Only trainers with enough badges may challenge the Champion. Keep training!'] },
   ];
-  const API = { TYPES, TYPE_COL, CHART, typeMult, MOVES, MOVE_LIST, SPECIES, BY_NAME, COUNT, STATS, movesAt, calcStats, xpFor, MAX_LV, baseExp, ORBS, orbMult, POTIONS, SHOP, DAILY, ROUTES, TRAINERS, NPCS, FAMILIES };
+
+  // ======================================================================
+  // Open world: 8 routes + 8 gym towns laid out west -> east along "Champion Road".
+  // Everything below is generated from a few numbers so client, server and admin all agree.
+  // ======================================================================
+  const WORLD_W = 412;
+  const TOWN_X0 = k => 122 + (k - 1) * 38;                 // town k spans x0 .. x0+16
+  const routeX0 = k => k === 1 ? 74 : TOWN_X0(k - 1) + 16;  // route k spans routeX0 .. (k === 1 ? 120 : TOWN_X0(k))
+  const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const normal = SPECIES.slice(1).filter(x => !x.legend && !x.rare && !x.starter).sort((a, b) => a.bst - b.bst || a.id - b.id);
+  const LV = k => k === 1 ? [3, 8] : [6 * k - 4, 6 * k + 2];
+  const ROUTE_NAMES = ['Sunny Fields', 'Dewdrop Trail', 'Mosswater Run', 'Stormcloud Pass', 'Emberdust Road', 'Boulder Ridge', 'Mistveil Moor', 'Skyreach Way'];
+  for (let k = 2; k <= 8; k++) {
+    const start = Math.round((k - 1) * (normal.length - 16) / 7), win = normal.slice(start, start + 16);
+    const pool = win.map(sp => [sp.id, Math.max(2, Math.round(sp.catch / 12))]);
+    if (k >= 6) pool.push([BY_NAME.Dracolet, 1]);
+    const rs = routeX0(k);
+    ROUTES['r' + k] = {
+      id: 'r' + k, name: 'Route ' + k + ' · ' + ROUTE_NAMES[k - 1], levels: LV(k), pool,
+      grass: [[rs + 1, 20, 9, 9], [rs + 12, 20, 9, 9], [rs + 1, 34, 9, 9], [rs + 12, 34, 9, 9], [rs + 1, 8, 9, 9], [rs + 12, 46, 9, 9]],
+    };
+  }
+  ROUTES.r1.name = 'Route 1 · ' + ROUTE_NAMES[0];
+  // route trainers
+  const T_FIRST = ['Ace', 'Scout', 'Hiker', 'Angler', 'Ranger', 'Camper', 'Picnicker', 'Biker', 'Sailor', 'Tamer', 'Mystic', 'Cadet'];
+  const T_NAME = ['Dax', 'Lena', 'Omar', 'Pia', 'Rex', 'Tilly', 'Hugo', 'Nell', 'Finn', 'Gigi', 'Kai', 'Mara', 'Otto', 'Zoe', 'Bram', 'Cleo', 'Dov', 'Esme', 'Flint', 'Hana', 'Ivo', 'Jade', 'Knox', 'Lark'];
+  const T_PRE = ['Eyes met, so we battle!', 'My team is ready for you!', 'Let me test your skills!', "I won't hold back!", 'Trainers must battle when they meet!', 'Show me what you have!'];
+  const T_WIN = ['Great battle!', 'You beat me fair and square.', 'I need more training...', 'Wow, you are strong!', 'We will get you next time!'];
+  const rngT = mulberry(7);
+  for (let k = 2; k <= 8; k++) {
+    const rs = routeX0(k), R = ROUTES['r' + k], [lo, hi] = R.levels;
+    [[rs + 4, 31], [rs + 16, 32], [rs + 10.5, 14]].forEach(([x, y], i) => {
+      const n = 2 + (i === 2 ? 1 : 0) + (k >= 5 && i === 0 ? 1 : 0), team = [];
+      for (let m = 0; m < n; m++) { const pick = R.pool[Math.floor(rngT() * R.pool.length)][0]; team.push([pick, Math.min(hi, lo + 1 + Math.floor(rngT() * (hi - lo)) + (m === n - 1 ? 1 : 0))]); }
+      const avg = team.reduce((a, b) => a + b[1], 0) / n;
+      TRAINERS.push({ id: 't_r' + k + '_' + i, name: T_FIRST[(k * 3 + i) % T_FIRST.length] + ' ' + T_NAME[(k * 3 + i * 5) % T_NAME.length], x, y, look: (k + i) % 10, team, reward: Math.round(avg * n * 9), pre: T_PRE[(k + i) % T_PRE.length], win: T_WIN[(k * 2 + i) % T_WIN.length] });
+    });
+  }
+  // ---------- gyms & towns ----------
+  const GYM_DEFS = [
+    { type: 'Leaf', gym: 'Mossgate Gym', town: 'Greenhollow', leader: 'Leader Fern', look: 1, badge: 'Sprout Badge', col: '#6abe30', pre: 'Welcome to Mossgate! My leafy team grows stronger every day.', win: 'You have a green thumb for battle. Take the Sprout Badge!' },
+    { type: 'Aqua', gym: 'Tidepool Gym', town: 'Marinport', leader: 'Leader Marin', look: 3, badge: 'Ripple Badge', col: '#339af0', pre: 'The tide is rising! Can you keep your head above water?', win: 'A wave of skill! The Ripple Badge is yours.' },
+    { type: 'Volt', gym: 'Sparkforge Gym', town: 'Voltvale', leader: 'Leader Ziggy', look: 5, badge: 'Spark Badge', col: '#fcc419', pre: 'Zzzap! My team runs on pure energy!', win: 'Shocking! You earned the Spark Badge.' },
+    { type: 'Flame', gym: 'Emberhall Gym', town: 'Cinderfall', leader: 'Leader Cinda', look: 7, badge: 'Blaze Badge', col: '#f76707', pre: 'Feel the heat! Only the bold survive Emberhall.', win: 'You burn brighter than most. Take the Blaze Badge!' },
+    { type: 'Stone', gym: 'Bedrock Gym', town: 'Granite Gap', leader: 'Leader Rocco', look: 8, badge: 'Boulder Badge', col: '#a1887f', pre: 'Nothing moves a mountain. Try anyway!', win: 'You cracked my defense! The Boulder Badge is yours.' },
+    { type: 'Toxic', gym: 'Gloomspore Gym', town: 'Mirewood', leader: 'Leader Vesper', look: 9, badge: 'Venom Badge', col: '#ae3ec9', pre: 'Careful where you step in my gym... it bites.', win: 'Immune to my tricks? Impressive. Venom Badge, yours.' },
+    { type: 'Frost', gym: 'Glacier Gym', town: 'Frostpeak', leader: 'Leader Hailey', look: 4, badge: 'Crystal Badge', col: '#74c0fc', pre: 'Cool down, trainer. My team never loses its chill.', win: 'You melted my ice! Take the Crystal Badge.' },
+    { type: 'Mind', gym: 'Summit Gym', town: 'Zenith City', leader: 'Leader Zenith', look: 6, badge: 'Summit Badge', col: '#da77f2', pre: 'I foresaw your arrival. Can you foresee my moves?', win: 'My vision failed me. You hold all eight badges now!' },
+  ];
+  const GYMS = [], TOWNS = [], CENTERS = [{ x: 66, y: 25, w: 5, h: 4, name: 'Sunny Lots Bitmon Center' }];
+  GYM_DEFS.forEach((d, i) => {
+    const k = i + 1, x0 = TOWN_X0(k), cand = normal.filter(sp => sp.types.includes(d.type));
+    const n = [3, 3, 4, 4, 5, 5, 6, 6][i], f = .12 + i * .1, team = [], used = new Set();
+    const lvTop = 6 * k + 8;
+    for (let m = 0; m < n; m++) {
+      let idx = Math.max(0, Math.min(cand.length - 1, Math.round((f + (m - (n - 1) / 2) * .09 + (m === n - 1 ? .25 : 0)) * (cand.length - 1))));
+      while (used.has(idx) && idx < cand.length - 1) idx++;
+      while (used.has(idx) && idx > 0) idx--;
+      used.add(idx);
+      team.push([cand[idx].id, lvTop - (n - 1 - m) * (k < 4 ? 2 : 1) - (m === n - 1 ? 0 : 0)]);
+    }
+    if (team.length < n) while (team.length < n) { const sp = normal[Math.min(normal.length - 1, 20 + i * 12 + team.length)]; team.push([sp.id, lvTop - 2]); }
+    const gym = { id: 'g' + k, n: k, type: d.type, name: d.gym, town: d.town, leader: d.leader, look: d.look, badge: d.badge, col: d.col, team, reward: 1000 + k * 600, pre: d.pre, win: d.win,
+      x: x0 + 8, y: 23, w: 7, h: 5, lx: x0 + 11.5, ly: 29.5, minLv: 6 * k + 2 };
+    GYMS.push(gym);
+    const center = { x: x0 + 1, y: 24, w: 5, h: 4, name: d.town + ' Bitmon Center' };
+    CENTERS.push(center);
+    TOWNS.push({ k, name: d.town, x0, w: 16, y0: 18, y1: 46, center, gym: gym.id });
+  });
+  GYMS.forEach(g => TRAINERS.push({ id: g.id, name: g.leader, x: g.lx, y: g.ly, look: g.look, team: g.team, reward: g.reward, pre: g.pre, win: g.win, gym: g.id, badge: g.badge, hidden: true }));
+  // talkers
+  const TALK = [
+    ['Greenhollow is famous for leaf-type monsters. Fern beats rookies... so bring fire!', 'Grass monsters fear Flame, Frost and Gale moves.'],
+    ['Marinport has the best harbour! Aqua monsters love it. Volt moves shock them nicely.', 'Leaf moves are also strong against water.'],
+    ['Voltvale hums day and night. Volt moves hit Aqua and Gale hard, but Stone shrugs them off.', 'Stone-type monsters are immune to Volt moves.'],
+    ['Cinderfall is hot! Flame loves Leaf and Frost targets. Bring Aqua or Stone to cool it off.', 'Burns halve a monster\'s physical damage.'],
+    ['Granite Gap is solid rock. Aqua, Leaf and Brawl moves crack it.', 'Stone monsters are slow but very tough.'],
+    ['Mirewood is thick with spores. Toxic monsters hate Mind and Stone moves.', 'A poisoned monster loses HP every turn. Carry a Cure!'],
+    ['Frostpeak is freezing! Frost monsters melt to Flame, Brawl and Stone moves.', 'Stock up on potions before the big climb.'],
+    ['Zenith City stands at the top of the road. The Summit Gym needs seven badges before it opens...', 'Rumour has it a legendary mind-monster waits for the one with all eight badges.'],
+  ];
+  const ROUTE_TALK = [
+    null,
+    ['Route 2 is full of little water-lovers. Orbs work best on weakened monsters!', 'Status moves like Lullaby help catching: sleeping monsters are easier to catch.'],
+    ['Route 3 gets stormy. Bring Revives, trainers here have strong teams.', 'You can swap your lead monster in the Bitmon menu.'],
+    ['Strange lights glow at the end of this road... a shrine, they say.', 'Only trainers with three badges can wake what sleeps there.'],
+    ['The shrine on Route 5 hums with water energy.', 'Great Orbs and Ultra Orbs are sold at the Mart. Master Orbs never are.'],
+    ['Route 6 is rough. Stone and Brawl types roam here.', 'Another shrine hides at the far end of this road.'],
+    ['Mist hides everything on Route 7... except the thunder shrine to the north.', 'The Champion Road is almost over. Keep going!'],
+    ['This is the last stretch. Zenith City is just ahead.', 'You made it this far? You are a true trainer.'],
+  ];
+  TOWNS.forEach((t, i) => { NPCS.push({ id: 'n_town' + t.k, name: 'Resident ' + t.name.split(' ')[0], x: t.x0 + 6, y: 34, look: (i * 3 + 2) % 10, lines: TALK[i] }); });
+  for (let k = 2; k <= 8; k++) NPCS.push({ id: 'n_rt' + k, name: 'Wanderer ' + ['Ivy', 'Rowan', 'Sage', 'Ash', 'Clay', 'Haze', 'Wren'][k - 2], x: routeX0(k) + 7, y: 33, look: (k * 2 + 1) % 10, lines: ROUTE_TALK[k - 1] });
+  // legendary shrines (dead-end roads at the far north of routes 4-8)
+  const LEGENDS = [
+    { sp: BY_NAME.Solarex, route: 4, badges: 3, lv: 35 }, { sp: BY_NAME.Aquarion, route: 5, badges: 4, lv: 40 },
+    { sp: BY_NAME.Terraknox, route: 6, badges: 5, lv: 45 }, { sp: BY_NAME.Voltarch, route: 7, badges: 6, lv: 50 }, { sp: BY_NAME.Omnimind, route: 8, badges: 8, lv: 60 },
+  ].map(L => Object.assign(L, { x: routeX0(L.route) + 11, y: 4 }));
+  const API = { TYPES, TYPE_COL, CHART, typeMult, MOVES, MOVE_LIST, SPECIES, BY_NAME, COUNT, STATS, movesAt, calcStats, NATURES, xpFor, MAX_LV, baseExp, ORBS, orbMult, POTIONS, SHOP, DAILY, ROUTES, TRAINERS, NPCS, FAMILIES, WORLD_W, TOWNS, GYMS, CENTERS, LEGENDS, routeX0, TOWN_X0 };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.Mon = API;
 })(typeof window !== 'undefined' ? window : globalThis);
