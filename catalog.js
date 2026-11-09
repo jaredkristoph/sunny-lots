@@ -223,6 +223,8 @@ const WORLD = {
     { id: 'roulette', name: 'Roulette Table', x: 55, y: 30 },
     { id: 'blackjack', name: 'Blackjack Table', x: 55, y: 35 },
     { id: 'slots', name: 'Super Ace Slots', x: 55, y: 40 },
+    { id: 'baccarat', name: 'Baccarat Table', x: 55, y: 45 },
+    { id: 'highlow', name: 'Higher / Lower', x: 55, y: 25 },
   ],
   bushes: [
     { id: 'b1', x: 36, y: 25 }, { id: 'b2', x: 40, y: 27 }, { id: 'b3', x: 48, y: 26 },

@@ -158,14 +158,16 @@
       case 'land_stats':
         if (lands[m.land]) lands[m.land].stats = m.stats || lands[m.land].stats;
         break;
-      case 'casino_info': casino.info[m.game] = m; if (m.game === 'blackjack') casino.bj = m.bj || null; if (!casino.spinning) casinoRefresh(); break;
+      case 'casino_info': casino.info[m.game] = m; if (m.game === 'blackjack') casino.bj = m.bj || null; if (m.game === 'highlow') casino.hl = m.hl || null; if (!casino.spinning) casinoRefresh(); break;
       case 'roulette_result': rouletteResult(m.r); break;
       case 'slots_result': playSlots(m.r); break;
+      case 'baccarat_result': playBaccarat(m.r); break;
       case 'harvested_many': msel.sel.clear(); msBar(); break;
       case 'orc_work': if (Date.now() - (window._orcT || 0) > 15000) { window._orcT = Date.now(); toast('🧌 Your Orc worked the farm (' + m.n + ' job' + (m.n > 1 ? 's' : '') + ')'); } break;
       case 'chat': addChat(m); if (m.n === myName) self.say = { text: m.text, until: Date.now() + 6000 }; else if (players[m.n]) players[m.n].say = { text: m.text, until: Date.now() + 6000 }; break;
       case 'sys': addChat({ sys: true, text: m.text }); break;
-      case 'err': toast(m.msg, true); if (casino.spinning && casino.game === 'slots' && !casino.slotRunning) { clearTimeout(casino.slotWait); casino.spinning = false; casinoRefresh(); } break;
+      case 'err': toast(m.msg, true); if (casino.spinning && casino.game === 'baccarat' && !casino.bac) { clearTimeout(casino.bacWait); casino.spinning = false; casinoRefresh(); }
+      if (casino.spinning && casino.game === 'slots' && !casino.slotRunning) { clearTimeout(casino.slotWait); casino.spinning = false; casinoRefresh(); } break;
       case 'ok': toast(m.msg); break;
       case 'harvested': {
         const sd = cat.SEED_BY[m.seed];
@@ -550,7 +552,7 @@
   }
   (function buildPOIs() {
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
-    for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : t.id === 'slots' ? Vox.slotBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
+    for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : t.id === 'slots' ? Vox.slotBoxes() : t.id === 'baccarat' ? Vox.baccaratBoxes() : t.id === 'highlow' ? Vox.highlowBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
     if (WD.bank) piece(Vox.bankBoxes(), WD.bank.x + WD.bank.w / 2, WD.bank.y + WD.bank.h / 2, 2.4);
     if (WD.orcMarket) piece(Vox.orcMarketBoxes(), WD.orcMarket.x + WD.orcMarket.w / 2, WD.orcMarket.y + WD.orcMarket.h / 2, 2.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
@@ -1168,13 +1170,13 @@
   const MIN_BET = 50;
   const RED_NUMS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
   const rColor = n => n === 0 ? '#1f8a4c' : RED_NUMS.has(n) ? '#c0392b' : '#222';
-  const casino = { game: null, tab: 'play', info: {}, bj: null, chip: 50, bets: {}, order: [], last: null, spinning: false, wheelEl: null, slot: null, slotRun: 0, slotRunning: false, slEls: null, buyArm: 0, slotWait: 0 };
-  const CASINO_TITLE = { roulette: '🎡 Roulette Table', blackjack: '🃏 Blackjack Table', slots: '🎰 Super Ace Slots' };
+  const casino = { game: null, tab: 'play', info: {}, bj: null, chip: 50, bets: {}, order: [], last: null, spinning: false, wheelEl: null, bjHands: 1, bac: null, bacBets: {}, bacOrder: [], bacRun: 0, bacWait: 0, hl: null, slot: null, slotRun: 0, slotRunning: false, slEls: null, buyArm: 0, slotWait: 0 };
+  const CASINO_TITLE = { roulette: '🎡 Roulette Table', blackjack: '🃏 Blackjack Table', slots: '🎰 Super Ace Slots', baccarat: '🎴 Baccarat Table', highlow: '⬆⬇ Higher / Lower' };
   function openCasino(game) {
     casino.game = game; casino.tab = 'play'; casino.last = null; casino.spinning = false;
     send({ t: 'casino_open', game });
     openModal(CASINO_TITLE[game], buildCasino);
-    modalClose = () => { casino.game = null; casino.spinning = false; casino.slotRun++; casino.slotRunning = false; casino.buyArm = 0; clearInterval(casino.iv); };
+    modalClose = () => { casino.game = null; casino.spinning = false; casino.slotRun++; casino.bacRun++; casino.slotRunning = false; casino.buyArm = 0; clearInterval(casino.iv); };
   }
   const casinoRefresh = () => { if (casino.game && modalRefresh) modalRefresh(); };
   const chipAmount = () => {
@@ -1211,7 +1213,7 @@
     return h('div', {},
       h('div', { class: 'tabs' }, tabBtn('play', '🎲 Play'), tabBtn('info', 'ℹ️ Info & Top 10')),
       h('div', { class: 'muted', style: 'text-align:center;margin:4px 0' }, 'Minimum bet ' + money(MIN_BET) + ' · You have ' + money(me.money)),
-      casino.tab === 'info' ? casinoStats(info) : (g === 'roulette' ? buildRoulette(info) : g === 'slots' ? buildSlots() : buildBlackjack()));
+      casino.tab === 'info' ? casinoStats(info) : (g === 'roulette' ? buildRoulette(info) : g === 'slots' ? buildSlots() : g === 'baccarat' ? buildBaccarat(info) : g === 'highlow' ? buildHighLow() : buildBlackjack()));
   }
   // --- roulette ---
   const BOARD_OUTSIDE = [['dozen:1', '1st 12', '#2f9e44'], ['dozen:2', '2nd 12', '#2f9e44'], ['dozen:3', '3rd 12', '#2f9e44'],
@@ -1268,23 +1270,126 @@
     const red = c.s === '♥' || c.s === '♦';
     return h('div', { style: 'width:44px;height:62px;border-radius:6px;border:2px solid #999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:17px;line-height:1.1;color:' + (red ? '#c92a2a' : '#222') }, c.r, h('span', { style: 'font-size:18px' }, c.s));
   }
-  const BJ_TEXT = { win: ['You win!', '#2b8a3e'], blackjack: ['Blackjack! Pays 3:2', '#2b8a3e'], lose: ['Dealer wins', '#c92a2a'], push: ['Push — bet returned', '#555'] };
+  const BJ_TEXT = { win: ['Win', '#2b8a3e'], blackjack: ['Blackjack 3:2', '#2b8a3e'], lose: ['Lose', '#c92a2a'], bust: ['Bust', '#c92a2a'], push: ['Push', '#555'] };
   function buildBlackjack() {
-    const bj = casino.bj, playing = bj && bj.status === 'playing';
-    const hand = (label, cards, val) => h('div', { class: 'center', style: 'gap:4px' }, h('div', { class: 'muted' }, label + (val != null ? ' · ' + val : '')), h('div', { class: 'row', style: 'justify-content:center;flex-wrap:nowrap' }, cards.map(cardEl)));
-    const res = bj && !playing ? BJ_TEXT[bj.status] : null;
-    const bet = () => { const amt = chipAmount(); if (amt) send({ t: 'bj_deal', bet: amt }); };
+    const bj = casino.bj, playing = bj && bj.status === 'playing', n = casino.bjHands || 1;
+    const cardsRow = cards => h('div', { class: 'row', style: 'justify-content:center;flex-wrap:wrap;gap:4px' }, cards.map(cardEl));
+    const dealerBox = bj ? h('div', { class: 'center', style: 'gap:4px' }, h('div', { style: 'opacity:.9;font-weight:700' }, 'Dealer · ' + (playing ? bj.dv + '+?' : bj.dv)), cardsRow(bj.dealer)) : h('div', { style: 'opacity:.85' }, 'Dealer stands on 17 · Blackjack pays 3:2 · up to ' + 5 + ' hands · split & double');
+    const handBox = (hd, i) => {
+      const act = playing && i === bj.active;
+      return h('div', { class: 'center', style: 'gap:3px;padding:6px 8px;border-radius:10px;min-width:96px;background:' + (act ? 'rgba(255,224,102,.35)' : 'rgba(0,0,0,.18)') + ';border:2px solid ' + (act ? '#ffe066' : 'transparent') },
+        h('div', { style: 'font-weight:800;font-size:13px' }, 'Hand ' + (i + 1) + ' · ' + hd.pv + (hd.doubled ? ' · ×2' : '')),
+        cardsRow(hd.cards),
+        h('div', { style: 'font-size:12px;font-weight:700' }, money(hd.bet)),
+        hd.status === 'playing' ? null : BJ_TEXT[hd.status] ? h('div', { style: 'background:#fff;color:' + BJ_TEXT[hd.status][1] + ';border-radius:8px;padding:1px 8px;font-size:12px;font-weight:900' }, BJ_TEXT[hd.status][0] + (!playing && hd.payout ? ' +' + money(hd.payout) : '')) : h('div', { style: 'font-size:12px;opacity:.9' }, 'Stand'));
+    };
+    const net = bj && !playing ? bj.total - bj.staked : 0;
+    const bet = () => { const amt = chipAmount(); if (amt) send({ t: 'bj_deal', bet: amt, hands: n }); };
+    const handPick = h('div', { class: 'row', style: 'justify-content:center;align-items:center;gap:4px' }, h('span', { class: 'muted' }, 'Hands:'),
+      [1, 2, 3, 4, 5].map(k => h('button', { class: 'btn sm' + (n === k ? ' green' : ''), onclick: () => { casino.bjHands = k; casinoRefresh(); } }, k)));
+    const totalBet = (Math.floor(Number(casino.chip)) || 0) * n;
     return h('div', { class: 'center', style: 'gap:10px;background:#1f8a4c;border-radius:14px;padding:12px;color:#fff' },
-      bj ? hand('Dealer', bj.dealer, playing ? bj.dv + '+?' : bj.dv) : h('div', { style: 'opacity:.85' }, 'Dealer stands on 17 · Blackjack pays 3:2'),
-      bj ? hand('You', bj.player, bj.pv) : null,
-      bj ? h('div', { style: 'font-weight:800' }, 'Bet ' + money(bj.bet)) : null,
-      res ? h('div', { style: 'background:#fff;color:' + res[1] + ';border-radius:10px;padding:6px 14px;font-weight:900' }, res[0] + (bj.status === 'lose' ? '' : ' · returned ' + money(bj.payout))) : null,
-      playing ? h('div', { class: 'row', style: 'justify-content:center;gap:8px' },
+      dealerBox,
+      bj ? h('div', { class: 'row', style: 'justify-content:center;flex-wrap:wrap;gap:8px' }, bj.hands.map(handBox)) : null,
+      bj && !playing ? h('div', { style: 'background:#fff;color:' + (net > 0 ? '#2b8a3e' : net < 0 ? '#c92a2a' : '#555') + ';border-radius:10px;padding:6px 14px;font-weight:900' }, net > 0 ? 'You won ' + money(net) : net < 0 ? 'You lost ' + money(-net) : 'Break even') : null,
+      playing ? h('div', { class: 'row', style: 'justify-content:center;gap:8px;flex-wrap:wrap' },
         h('button', { class: 'btn green', onclick: () => send({ t: 'bj_hit' }) }, 'Hit'),
         h('button', { class: 'btn', onclick: () => send({ t: 'bj_stand' }) }, 'Stand'),
-        h('button', { class: 'btn', disabled: !bj.canDouble, onclick: () => send({ t: 'bj_double' }) }, 'Double')) :
-        h('div', { class: 'center', style: 'gap:8px;background:#fff;color:#222;border-radius:12px;padding:10px;width:100%' }, chipPicker(),
-          h('button', { class: 'btn green', disabled: me.money < MIN_BET, onclick: bet }, bj ? 'Deal again' : 'Deal')));
+        h('button', { class: 'btn', disabled: !bj.canDouble, onclick: () => send({ t: 'bj_double' }) }, 'Double'),
+        h('button', { class: 'btn', disabled: !bj.canSplit, onclick: () => send({ t: 'bj_split' }) }, '✂️ Split')) :
+        h('div', { class: 'center', style: 'gap:8px;background:#fff;color:#222;border-radius:12px;padding:10px;width:100%' }, chipPicker(), handPick,
+          h('div', { class: 'muted' }, n + ' hand' + (n > 1 ? 's' : '') + ' × ' + money(Math.floor(Number(casino.chip)) || 0) + ' = ' + money(totalBet)),
+          h('button', { class: 'btn green', disabled: me.money < MIN_BET * n || totalBet > me.money, onclick: bet }, bj ? 'Deal again' : 'Deal')));
+  }
+
+  // --- baccarat ---
+  const BAC_SPOTS = [['player', 'Player', '1 : 1', '#2a5cc0'], ['tie', 'Tie', '8 : 1', '#2f9e5a'], ['banker', 'Banker', '0.95 : 1', '#b03030'], ['ppair', 'P Pair', '11 : 1', '#4c6ef5'], ['bpair', 'B Pair', '11 : 1', '#e03131']];
+  const bacPts = c => (c.r === 'A' ? 1 : (c.r === '10' || 'JQK'.includes(c.r)) ? 0 : Number(c.r));
+  const bacVal = cards => cards.reduce((s, c) => s + bacPts(c), 0) % 10;
+  function bacBetTotal() { return Object.values(casino.bacBets).reduce((a, b) => a + b, 0); }
+  function bacPlace(type) {
+    if (casino.spinning) return;
+    const amt = chipAmount(); if (!amt) return;
+    if (bacBetTotal() + amt > me.money) return toast('Not enough money for that chip.', true);
+    casino.bacBets[type] = (casino.bacBets[type] || 0) + amt; casino.bacOrder.push([type, amt]); casinoRefresh();
+  }
+  function buildBaccarat(info) {
+    const A = casino.bac, total = bacBetTotal();
+    const spot = ([k, name, odds, col]) => h('button', { class: 'btn', style: 'position:relative;background:' + col + ';color:#fff;flex:1;min-width:84px;padding:10px 4px', disabled: casino.spinning, onclick: () => bacPlace(k) },
+      h('div', { style: 'font-weight:900' }, name), h('div', { style: 'font-size:11px;opacity:.9' }, odds),
+      casino.bacBets[k] ? h('span', { style: 'position:absolute;top:-7px;right:-4px;background:#ffd43b;color:#222;border-radius:9px;font-size:11px;padding:0 5px;border:1px solid #7a5230' }, '$' + casino.bacBets[k]) : null);
+    const side = (label, cards, shown, col) => {
+      const vis = cards.slice(0, shown);
+      return h('div', { class: 'center', style: 'gap:4px;flex:1' }, h('div', { style: 'font-weight:900;color:' + col }, label + (vis.length ? ' · ' + bacVal(vis) : '')),
+        h('div', { class: 'row', style: 'justify-content:center;gap:4px;min-height:66px' }, vis.map(cardEl)));
+    };
+    const hist = (info && info.history || []).slice().reverse().map(x => h('span', { style: 'display:inline-block;min-width:20px;text-align:center;border-radius:50%;color:#fff;font-weight:800;font-size:12px;padding:1px 3px;background:' + (x === 'P' ? '#2a5cc0' : x === 'B' ? '#b03030' : '#2f9e5a') }, x));
+    let table = null;
+    if (A) {
+      const r = A.r;
+      table = h('div', { class: 'row', style: 'gap:10px;background:#14532d;border-radius:12px;padding:10px;width:100%;color:#fff' },
+        side('Player', r.player.cards, A.pShown, '#a5d8ff'), side('Banker', r.banker.cards, A.bShown, '#ffc9c9'));
+    }
+    const done = A && A.done;
+    const outcome = done ? h('div', { style: 'text-align:center;font-weight:900;font-size:16px;color:' + (A.r.net > 0 ? '#2b8a3e' : A.r.net < 0 ? '#c92a2a' : '#555') },
+      (A.r.outcome === 'tie' ? 'TIE' : A.r.outcome.toUpperCase() + ' WINS') + ' (' + A.r.player.total + ' – ' + A.r.banker.total + ')' + (A.r.pp ? ' · P pair' : '') + (A.r.bp ? ' · B pair' : '') + ' · ' + (A.r.net > 0 ? 'you won ' + money(A.r.net) : A.r.net < 0 ? 'you lost ' + money(-A.r.net) : 'bets returned')) : null;
+    return h('div', { class: 'center', style: 'gap:8px' },
+      h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;justify-content:center;max-width:380px;min-height:22px' }, hist.length ? hist : h('span', { class: 'muted' }, 'No hands yet')),
+      table, outcome, chipPicker(),
+      h('div', { class: 'row', style: 'width:100%;gap:6px;flex-wrap:wrap' }, BAC_SPOTS.map(spot)),
+      h('div', { class: 'muted', style: 'font-size:12px' }, 'Closest to 9 wins · A=1, 10/J/Q/K=0 · Banker pays 0.95:1 (5% commission) · Tie returns Player/Banker bets'),
+      h('div', { class: 'row', style: 'justify-content:center;gap:8px' },
+        h('button', { class: 'btn', disabled: casino.spinning || !casino.bacOrder.length, onclick: () => { const [k, a] = casino.bacOrder.pop(); casino.bacBets[k] -= a; if (!casino.bacBets[k]) delete casino.bacBets[k]; casinoRefresh(); } }, 'Undo'),
+        h('button', { class: 'btn', disabled: casino.spinning || !total, onclick: () => { casino.bacBets = {}; casino.bacOrder = []; casinoRefresh(); } }, 'Clear'),
+        h('button', { class: 'btn green', disabled: casino.spinning || !total || total > me.money, onclick: () => {
+          const bets = Object.entries(casino.bacBets).map(([type, amount]) => ({ type, amount }));
+          casino.spinning = true; casino.bac = null; send({ t: 'baccarat_deal', bets }); casinoRefresh();
+          clearTimeout(casino.bacWait); casino.bacWait = setTimeout(() => { if (casino.spinning && !casino.bac) { casino.spinning = false; casinoRefresh(); } }, 6000);
+        } }, casino.spinning ? 'Dealing…' : 'Deal · ' + money(total))));
+  }
+  async function playBaccarat(r) {
+    clearTimeout(casino.bacWait);
+    const run = ++casino.bacRun, sleep = ms => new Promise(res => setTimeout(res, ms));
+    const alive = () => casino.bacRun === run && casino.game === 'baccarat';
+    const end = () => { casino.spinning = false; };
+    const A = casino.bac = { r, pShown: 0, bShown: 0, done: false };
+    if (!alive()) { end(); toast(r.net > 0 ? '🎴 Baccarat: you won ' + money(r.net) : '🎴 Baccarat: ' + (r.net < 0 ? 'you lost ' + money(-r.net) : 'bets returned'), r.net < 0); return; }
+    // deal order: P, B, P, B, then third cards
+    const order = ['p', 'b', 'p', 'b']; if (r.player.cards.length > 2) order.push('p'); if (r.banker.cards.length > 2) order.push('b');
+    casinoRefresh();
+    for (const w of order) {
+      await sleep(600); if (!alive()) return end();
+      if (w === 'p') A.pShown++; else A.bShown++;
+      casinoRefresh();
+    }
+    await sleep(500); if (!alive()) return end();
+    A.done = true; end();
+    casino.bacBets = {}; casino.bacOrder = [];
+    casinoRefresh();
+    toast(r.net > 0 ? '🎴 You won ' + money(r.net) + '!' : r.net < 0 ? '🎴 You lost ' + money(-r.net) : '🎴 Bets returned', r.net < 0);
+  }
+
+  // --- higher / lower ---
+  function buildHighLow() {
+    const hl = casino.hl, playing = hl && hl.status === 'playing';
+    const rankName = r => r === 1 ? 'A' : r === 11 ? 'J' : r === 12 ? 'Q' : r === 13 ? 'K' : String(r);
+    const card = c => cardEl({ r: rankName(c.rank), s: c.s });
+    const big = c => { const e = card(c); e.style.transform = 'scale(1.5)'; e.style.margin = '14px'; return e; };
+    const guess = (g, label, d, col) => h('button', { class: 'btn', style: 'flex:1;background:' + col + ';color:#fff;padding:10px 4px', disabled: !playing, onclick: () => send({ t: 'hl_guess', g }) },
+      h('div', { style: 'font-weight:900' }, label), h('div', { style: 'font-size:11px;opacity:.9' }, d ? '×' + d.m + ' · ' + Math.round(d.p * 100) + '%' : ''));
+    const lastTxt = hl && hl.last && hl.last.g !== 'skip' ? (hl.last.win ? '✅ Correct!' : '❌ Wrong') : '';
+    const bet = () => { const amt = chipAmount(); if (amt) send({ t: 'hl_start', bet: amt }); };
+    return h('div', { class: 'center', style: 'gap:8px;background:#5a2d82;border-radius:14px;padding:12px;color:#fff' },
+      hl ? h('div', { class: 'row', style: 'justify-content:center;align-items:center;gap:6px' },
+        hl.prev ? h('div', { style: 'opacity:.6;transform:scale(.8)' }, card(hl.prev)) : null, hl.prev ? h('span', { style: 'font-size:22px' }, '→') : null, big(hl.card)) : h('div', { style: 'opacity:.9' }, 'Guess if the next card is higher or lower. Ties count as a win. Cash out any time after a correct guess.'),
+      hl ? h('div', { style: 'font-weight:800' }, 'Streak ' + hl.streak + ' · ×' + hl.mult + (playing ? ' · cash-out ' + money(hl.cash) : '') + ' ' + lastTxt) : null,
+      playing ? h('div', { class: 'row', style: 'gap:6px;width:100%' }, guess('hi', '⬆ Higher / same', hl.hi, '#2f9e44'), guess('lo', '⬇ Lower / same', hl.lo, '#d6336c')) : null,
+      playing ? h('div', { class: 'row', style: 'justify-content:center;gap:8px' },
+        h('button', { class: 'btn', onclick: () => send({ t: 'hl_skip' }) }, 'Skip card'),
+        h('button', { class: 'btn green', disabled: hl.streak < 1, onclick: () => send({ t: 'hl_cash' }) }, '💰 Cash out ' + money(hl.cash))) : null,
+      hl && !playing ? h('div', { style: 'background:#fff;color:' + (hl.status === 'cashed' ? '#2b8a3e' : '#c92a2a') + ';border-radius:10px;padding:6px 14px;font-weight:900' }, hl.status === 'cashed' ? 'Cashed out ' + money(hl.payout) + ' (×' + hl.mult + ')' : 'Wrong guess — lost ' + money(hl.bet)) : null,
+      playing ? null : h('div', { class: 'center', style: 'gap:8px;background:#fff;color:#222;border-radius:12px;padding:10px;width:100%' }, chipPicker(),
+        h('button', { class: 'btn green', disabled: me.money < MIN_BET, onclick: bet }, hl ? 'Play again' : 'Start')));
   }
   function openLandPost(i) {
     const L = lands[i]; if (!L) return;
@@ -1822,7 +1927,7 @@
     }
     if (WD.casino && WD.casino.length) {
       for (const t of WD.casino) { const p = toPage(t.x, 1.3, t.y); if (p[0] > -40 && p[0] < vw + 40) tag(t.name, p[0], p[1], '#ffe8a3'); }
-      const mid = toPage(WD.casino[0].x, 2.3, (WD.casino[0].y + WD.casino[WD.casino.length - 1].y) / 2);
+      const cys = WD.casino.map(t => t.y), mid = toPage(WD.casino[0].x, 2.3, (Math.min(...cys) + Math.max(...cys)) / 2);
       lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
     }
     for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }

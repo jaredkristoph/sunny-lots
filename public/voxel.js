@@ -713,6 +713,31 @@ const Vox = (() => {
     B.add(.55, .62, .2, .1, .05, .1, '#1c1c1c').add(.55, .67, .2, .1, .05, .1, '#f1c40f').add(-.55, .62, .2, .1, .06, .1, '#e74c3c');
     return B;
   }
+  // Baccarat: deep-blue felt, gold rail, Player / Banker / Tie zones, shoe + chips
+  function baccaratBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, 1.9, .5, 1.1, '#3a2410');
+    B.add(0, .5, 0, 2.05, .09, 1.25, '#c9a227');
+    B.add(0, .59, 0, 1.9, .03, 1.08, '#1b3f8a');
+    B.add(-.5, .62, .12, .5, .015, .36, '#2a5cc0'); B.add(.5, .62, .12, .5, .015, .36, '#b03030'); B.add(0, .62, .12, .3, .015, .36, '#2f9e5a');   // Player / Banker / Tie
+    B.add(-.5, .635, .12, .16, .005, .1, '#ffffff'); B.add(.5, .635, .12, .16, .005, .1, '#ffffff'); B.add(0, .635, .12, .1, .005, .1, '#ffd43b');
+    B.add(0, .62, -.38, .3, .09, .16, '#111'); B.add(0, .71, -.38, .26, .02, .12, '#c0392b');                                                      // card shoe
+    B.add(-.12, .62, -.14, .12, .015, .17, '#ffffff'); B.add(.1, .62, -.14, .12, .015, .17, '#fff8e1');
+    B.add(.8, .62, .3, .1, .05, .1, '#f1c40f').add(.8, .67, .3, .1, .05, .1, '#e74c3c').add(-.8, .62, .3, .1, .06, .1, '#1c1c1c');
+    return B;
+  }
+  // Higher / Lower: purple felt, one big face-up card between a green up-arrow and a red down-arrow
+  function highlowBoxes() {
+    const B = mk();
+    B.add(0, 0, 0, 1.6, .5, 1.0, '#4a2a6a');
+    B.add(0, .5, 0, 1.75, .09, 1.15, '#7a52a0');
+    B.add(0, .59, 0, 1.6, .03, .98, '#5a2d82');
+    B.add(0, .62, 0, .34, .02, .48, '#ffffff'); B.add(0, .64, 0, .14, .005, .2, '#c0392b');                       // the card
+    B.add(-.55, .62, 0, .12, .02, .3, '#2f9e44'); B.add(-.55, .64, -.18, .3, .02, .1, '#2f9e44'); B.add(-.55, .64, -.1, .2, .02, .1, '#2f9e44');   // up-arrow
+    B.add(.55, .62, 0, .12, .02, .3, '#d6336c'); B.add(.55, .64, .18, .3, .02, .1, '#d6336c'); B.add(.55, .64, .1, .2, .02, .1, '#d6336c');       // down-arrow
+    B.add(.65, .62, .38, .1, .05, .1, '#f1c40f');
+    return B;
+  }
   function penFence(w, h) {
     const B = mk();
     const post = '#f1f3f5', rail = '#dee2e6';
@@ -865,5 +890,5 @@ const Vox = (() => {
     return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
   }
 
-  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, bankBoxes, orcMarketBoxes, slotBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
+  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, baccaratBoxes, highlowBoxes, bankBoxes, orcMarketBoxes, slotBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

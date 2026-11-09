@@ -71,3 +71,6 @@ Pick a username, the server generates a password and shows it once. There is no 
 - **🏦 Sunny Bank**: savings earn 2%/day (first $50k); loans up to $2,000 at 5%/day (capped at 2× borrowed) after playing on 2 different days.
 - **🟢 N online** in the HUD (click for the list).
 - **🎰 Super Ace Slots** in the casino: 1,024 ways, cascading multipliers, golden→wild cards, free spins, Buy Bonus (40× bet). All outcomes are decided by the server.
+- **🃏 Blackjack**: play 1–5 hands at once; split pairs (up to 5 hands total), double, blackjack pays 3:2.
+- **🎴 Baccarat** (Punto Banco): Player / Banker (0.95:1) / Tie (8:1) / pairs (11:1), real third-card rules.
+- **⬆⬇ Higher / Lower**: guess the next card, build a multiplier streak, cash out any time (3% edge per guess, ties win).

@@ -332,7 +332,7 @@ const meView = u => ({
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
-const sendCasino = (c, game) => send(c.ws, Object.assign({ t: 'casino_info', bj: game === 'blackjack' ? Casino.bjView(c.u) : undefined }, Casino.info(db, game, c.u.name)));
+const sendCasino = (c, game) => send(c.ws, Object.assign({ t: 'casino_info', bj: game === 'blackjack' ? Casino.bjView(c.u) : undefined, hl: game === 'highlow' ? Casino.hlView(c.u) : undefined }, Casino.info(db, game, c.u.name)));
 const playerList = () => [...online.values()].map(c => ({
   n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
   animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames, animalReady: c.u.animalReady, animalBorn: c.u.animalBorn, animalSex: c.u.animalSex,
@@ -499,7 +499,7 @@ wss.on('connection', ws => {
         break;
       }
       case 'casino_open': {
-        if (!Casino.info || !['roulette', 'blackjack', 'slots'].includes(m.game)) return;
+        if (!Casino.info || !['roulette', 'blackjack', 'slots', 'baccarat', 'highlow'].includes(m.game)) return;
         sendCasino(c, m.game);
         break;
       }
@@ -513,12 +513,30 @@ wss.on('connection', ws => {
         setTimeout(() => { sendMe(c); sendCasino(c, 'roulette'); }, 1500);   // let the wheel animation finish before money/stats update
         break;
       }
-      case 'bj_deal': case 'bj_hit': case 'bj_stand': case 'bj_double': {
+      case 'bj_deal': case 'bj_hit': case 'bj_stand': case 'bj_double': case 'bj_split': {
         if (Date.now() - (c.lastBet || 0) < 250) return;
         c.lastBet = Date.now();
-        const r = m.t === 'bj_deal' ? Casino.bjDeal(db, u, m.bet) : m.t === 'bj_hit' ? Casino.bjHit(db, u) : m.t === 'bj_stand' ? Casino.bjStand(db, u) : Casino.bjDouble(db, u);
+        const r = m.t === 'bj_deal' ? Casino.bjDeal(db, u, m.bet, m.hands) : m.t === 'bj_hit' ? Casino.bjHit(db, u) : m.t === 'bj_stand' ? Casino.bjStand(db, u) : m.t === 'bj_split' ? Casino.bjSplit(db, u) : Casino.bjDouble(db, u);
         if (r.error) return err(r.error);
         touch(); sendMe(c); sendCasino(c, 'blackjack');
+        break;
+      }
+      case 'baccarat_deal': {
+        if (Date.now() - (c.lastBet || 0) < 600) return;
+        c.lastBet = Date.now();
+        const r = Casino.baccaratDeal(db, u, m.bets);
+        if (r.error) return err(r.error);
+        touch();
+        send(ws, { t: 'baccarat_result', r });
+        setTimeout(() => { sendMe(c); sendCasino(c, 'baccarat'); }, 4200);   // after the cards are revealed
+        break;
+      }
+      case 'hl_start': case 'hl_guess': case 'hl_skip': case 'hl_cash': {
+        if (Date.now() - (c.lastBet || 0) < 200) return;
+        c.lastBet = Date.now();
+        const r = m.t === 'hl_start' ? Casino.hlStart(db, u, m.bet) : m.t === 'hl_guess' ? Casino.hlGuess(db, u, m.g) : m.t === 'hl_skip' ? Casino.hlSkip(db, u) : Casino.hlCashOut(db, u);
+        if (r.error) return err(r.error);
+        touch(); sendMe(c); sendCasino(c, 'highlow');
         break;
       }
       case 'emote': {
