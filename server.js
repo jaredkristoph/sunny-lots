@@ -211,7 +211,7 @@ app.get('/api/catalog', (req, res) => {
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
     GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, HOUSE_COST: C.HOUSE_COST,
-    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX, ORC: C.ORC, BANK: C.BANK, CARS: C.CARS, CAR_COLORS: C.CAR_COLORS, CAR_SELL_RATE: C.CAR_SELL_RATE, BAR: C.BAR, MARKET: C.MARKET, INVEST_FEE: C.INVEST_FEE, SLOT: { SYM: Casino.SL.SYM, PAY: Casino.SL.PAY, BUY_MULT: Casino.SL.BUY_MULT, FREE_SPINS: Casino.SL.FREE_SPINS, BASE_MULT: Casino.SL.BASE_MULT, FREE_MULT: Casino.SL.FREE_MULT, ROWS: Casino.SL.ROWS, COLS: Casino.SL.COLS },
+    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX, ORC: C.ORC, BANK: C.BANK, CARS: C.CARS, CAR_COLORS: C.CAR_COLORS, CAR_SELL_RATE: C.CAR_SELL_RATE, BAR: C.BAR, MARKET: C.MARKET, STEAL: C.STEAL, INVEST_FEE: C.INVEST_FEE, SLOT: { SYM: Casino.SL.SYM, PAY: Casino.SL.PAY, BUY_MULT: Casino.SL.BUY_MULT, FREE_SPINS: Casino.SL.FREE_SPINS, BASE_MULT: Casino.SL.BASE_MULT, FREE_MULT: Casino.SL.FREE_MULT, ROWS: Casino.SL.ROWS, COLS: Casino.SL.COLS },
     TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
     ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
@@ -1180,6 +1180,43 @@ wss.on('connection', ws => {
           ok('Repaid $' + amt.toLocaleString() + '.');
         }
         touch(); sendMe(c);
+        break;
+      }
+      case 'steal': {
+        const li = m.land, L = Number.isInteger(li) ? db.lands[li] : null;
+        if (!L || !L.owner || L.owner === '__npc__' || L.owner === c.key || !db.users[L.owner]) return err('Pick a crop on another player\'s farm.');
+        if (!Number.isInteger(m.tx) || !Number.isInteger(m.ty)) return;
+        const wait = (u.stealAt || 0) + C.STEAL.cooldownMs - Date.now();
+        if (wait > 0) return err('Lie low for ' + Math.ceil(wait / 1000) + 's before stealing again.');
+        const k = m.tx + ',' + m.ty, tile = L.tiles[k];
+        if (!tile || tile.type !== 'plant') return err('Nothing to steal there.');
+        const seed = C.SEED_BY[tile.seed];
+        if (!seed || Date.now() < tile.at + growMs(seed)) return err('That crop is not ripe yet.');
+        u.stealAt = Date.now();
+        const victim = db.users[L.owner];
+        if (Math.random() < C.STEAL.chance) {
+          const key = seed.id + (tile.gold ? '_gold' : '');
+          u.crops[key] = (u.crops[key] || 0) + 1;
+          setTile(li, k, null);
+          giveMail(victim, { subject: '🥷 A crop was stolen!', body: u.name + ' sneaked onto your farm and stole a ripe ' + (tile.gold ? 'golden ' : '') + seed.name + '.', from: 'Farm Watch' });
+          const vc = online.get(L.owner); if (vc) { sendMe(vc); send(vc.ws, { t: 'sys', text: '🥷 ' + u.name + ' stole a ' + seed.name + ' from your farm!' }); }
+          touch(); sendMe(c); send(ws, { t: 'steal_result', ok: true, seed: seed.id, gold: !!tile.gold, cd: C.STEAL.cooldownMs });
+        } else { touch(); send(ws, { t: 'steal_result', ok: false, cd: C.STEAL.cooldownMs }); }
+        break;
+      }
+      case 'send_money': {
+        const tk = String(m.to || '').trim().toLowerCase(), tu = db.users[tk];
+        if (!tu) return err('No player named "' + String(m.to || '').slice(0, 20) + '".');
+        if (tk === c.key) return err('You cannot send money to yourself.');
+        const amt = Math.floor(Number(m.amount));
+        if (!(amt >= 1)) return err('Enter a whole amount of at least $1.');
+        if (Date.now() - (c.lastSend || 0) < 1000) return;
+        if (amt > u.money) return err('You only have $' + Math.floor(u.money).toLocaleString() + '.');
+        c.lastSend = Date.now(); ensureUser(tu);
+        u.money = r2m(u.money - amt); tu.money = r2m(tu.money + amt);
+        giveMail(tu, { subject: '💸 You received $' + amt.toLocaleString(), body: u.name + ' sent you $' + amt.toLocaleString() + '.', from: u.name });
+        const tc = online.get(tk); if (tc) { sendMe(tc); send(tc.ws, { t: 'sys', text: '💸 ' + u.name + ' sent you $' + amt.toLocaleString() + '!' }); }
+        touch(); sendMe(c); ok('Sent $' + amt.toLocaleString() + ' to ' + tu.name + '.');
         break;
       }
       case 'car_buy': {

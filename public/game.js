@@ -203,6 +203,11 @@
       case 'err': toast(m.msg, true); if (casino.spinning && casino.game === 'baccarat' && !casino.bac) { clearTimeout(casino.bacWait); casino.spinning = false; casinoRefresh(); }
       if (casino.spinning && casino.game === 'slots' && !casino.slotRunning) { clearTimeout(casino.slotWait); casino.spinning = false; casinoRefresh(); } break;
       case 'ok': toast(m.msg); break;
+      case 'steal_result': {
+        stealUntil = Date.now() + m.cd;
+        if (m.ok) toast('🥷 Success! You stole a ' + (m.gold ? 'golden ' : '') + cat.SEED_BY[m.seed].name + '!'); else toast('🥷 You got spotted and ran off empty-handed. Lie low for a minute.', true);
+        break;
+      }
       case 'harvested': {
         const sd = cat.SEED_BY[m.seed];
         toast(m.gold ? '✨ Golden ' + sd.name + '! Worth triple!' : 'Harvested ' + sd.name);
@@ -942,7 +947,7 @@
       if (hit.lx != null) {
         let tile = L.tiles[hit.lx + ',' + hit.ly];
         if (tile && tile.type === 'part') tile = L.tiles[tile.k];
-        if (tile && tile.type === 'plant') return viewOtherCrop(L.owner, tile);
+        if (tile && tile.type === 'plant') { const kk = L.tiles[hit.lx + ',' + hit.ly].type === 'part' ? L.tiles[hit.lx + ',' + hit.ly].k : hit.lx + ',' + hit.ly, [sx, sy] = kk.split(',').map(Number); return viewOtherCrop(L.owner, tile, hit.i, sx, sy); }
         if (tile && tile.type === 'furn') return openModal(L.owner + "'s " + ((cat.FURN_BY[tile.id] || {}).name || 'decor'), () => h('div', { class: 'center' }, furnIcon(cat.FURN_BY[tile.id] || { id: 'x', shape: 'stool', v: 0, pal: ['#ccc', '#aaa', '#888'] }), h('div', { class: 'muted' }, 'Looking only.')));
       }
       return toast(L.owner + "'s place — click plants or decor to peek.", true);
@@ -956,19 +961,32 @@
       h('button', { class: 'btn green', onclick: () => { closeModal(); toast('Wheee! Down the slide!'); } }, 'Ride a slide'),
       h('button', { class: 'btn', onclick: () => { closeModal(); toast('Ahh… park bench break.'); } }, 'Sit on a bench')));
   }
-  function viewOtherCrop(owner, tile) {
+  function openSendMoney(name) {
+    openModal('💸 Send money', () => {
+      const inp = h('input', { class: 'txt', type: 'number', min: 1, placeholder: 'Amount in $', style: 'width:150px' });
+      const go = () => { const a = Number(inp.value); if (!(a >= 1)) return toast('Enter an amount first.', true); send({ t: 'send_money', to: name, amount: a }); closeModal(); };
+      inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+      setTimeout(() => inp.focus(), 50);
+      return h('div', { class: 'center', style: 'gap:8px' }, h('div', {}, 'Send cash to ', h('b', {}, name)), h('div', { class: 'muted' }, 'You have ' + money(me.money)), inp, h('button', { class: 'btn green', onclick: go }, 'Send'));
+    });
+  }
+  let stealUntil = 0;
+  function viewOtherCrop(owner, tile, land, tx, ty) {
     const sd = cat.SEED_BY[tile.seed]; if (!sd) return;
     const total = growMs(sd);
     openModal(owner + "'s " + sd.name, () => {
       const bar = h('div', { style: 'width:100%;height:100%' });
       const left = h('div', { style: 'font-size:20px;font-weight:700' });
+      const stealBtn = h('button', { class: 'btn', onclick: () => send({ t: 'steal', land, tx, ty }) }, '🥷 Steal');
       const upd = () => {
-        const p = Math.min(1, (now() - tile.at) / total);
+        const p = Math.min(1, (now() - tile.at) / total), cd = Math.ceil((stealUntil - Date.now()) / 1000);
         bar.style.width = (p * 100) + '%';
         left.textContent = p >= 1 ? 'Ready to harvest!' : fmtLeft(tile.at + total - now()) + ' left';
+        stealBtn.style.display = p >= 1 ? '' : 'none'; stealBtn.disabled = cd > 0;
+        stealBtn.textContent = cd > 0 ? '🥷 Lie low ' + cd + 's' : '🥷 Steal (' + Math.round(cat.STEAL.chance * 100) + '% chance)';
       };
       upd(); modalTick(upd, 500);
-      return h('div', { class: 'center' }, plantIcon(sd, !!tile.gold), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'Looking only — you cannot harvest their crops.'));
+      return h('div', { class: 'center' }, plantIcon(sd, !!tile.gold), left, h('div', { class: 'bar', style: 'width:100%' }, bar), h('div', { class: 'muted' }, 'You cannot harvest their crops, but you could try to sneak one...'), stealBtn);
     });
   }
 
@@ -1832,7 +1850,10 @@
         e.preventDefault();
         const t = ci.value.trim();
         const slash = t.startsWith('/') ? t.slice(1).toLowerCase() : null;
-        if (slash && (EMOTES.some(x => x[0] === slash) || slash === 'stand')) doEmote(slash === 'stand' ? null : slash);
+        const sm = t.match(/^\/send\s+(\S+)(?:\s+\$?([\d,]+))?\s*$/i);
+        if (sm) { const amt = sm[2] ? Number(sm[2].replace(/,/g, '')) : 0; if (amt > 0) send({ t: 'send_money', to: sm[1], amount: amt }); else openSendMoney(sm[1]); }
+        else if (/^\/send\b/i.test(t)) toast('Usage: /send name amount  (e.g. /send Sam 500)', true);
+        else if (slash && (EMOTES.some(x => x[0] === slash) || slash === 'stand')) doEmote(slash === 'stand' ? null : slash);
         else if (t) send({ t: 'chat', text: t });
         ci.value = '';
         // stay focused so you can keep chatting without pressing Enter again
