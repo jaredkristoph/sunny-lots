@@ -78,6 +78,21 @@ function relOwned(L, tx, ty) {
   if (tx >= 0 && ty >= 0 && tx < C.WORLD.landSize && ty < C.WORLD.landSize) return true;
   return !!(L.extra && L.extra[tx + ',' + ty]);
 }
+
+// ---------------- investing: shared market, random walk every second ----------------
+const CAR_BY = Object.fromEntries(C.CARS.map(x => [x.id, x]));
+const mkt = {};   // sym -> {price, open, hist:[...]}
+for (const a of C.MARKET) mkt[a.sym] = { price: a.base, open: a.base, hist: [a.base] };
+const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+function marketTick() {
+  for (const a of C.MARKET) {
+    const m = mkt[a.sym];
+    let lp = Math.log(m.price) + a.vol * gauss() + 0.0008 * (Math.log(a.base) - Math.log(m.price));   // noise + gentle pull back toward fair value
+    if (Math.random() < 0.004) lp += (Math.random() < 0.5 ? -1 : 1) * a.vol * (6 + Math.random() * 8);   // rare news jump
+    m.price = Math.min(a.base * 4, Math.max(a.base * 0.25, Math.exp(lp)));
+    m.hist.push(m.price); if (m.hist.length > 300) m.hist.shift();
+  }
+}
 function ensureUser(u) {
   Casino.ensureUser(u);
   Battle.ensureMon(u);
@@ -109,6 +124,11 @@ function ensureUser(u) {
   if (!u.furniture) u.furniture = {};
   if (!u.clothes) u.clothes = [];
   if (!u.tapAt) u.tapAt = 0;
+  if (!Array.isArray(u.cars)) u.cars = [];          // owned car ids
+  if (!u.carCol) u.carCol = {};                    // car id -> paint colour
+  if (u.car === undefined) u.car = null;           // car currently being driven
+  if (u.spouse === undefined) u.spouse = null;     // {name, gender:'f'|'m', look, since}
+  if (!u.invest) u.invest = {};                    // sym -> {units, cost}
 }
 const roundMoney = v => Math.round(Number(v) * 100) / 100;
 for (const u of Object.values(db.users)) ensureUser(u);
@@ -191,7 +211,7 @@ app.get('/api/catalog', (req, res) => {
     ALL_FURNITURE: C.FURNITURE, ALL_CLOTHES: C.CLOTHES,
     SKINS: C.SKINS, HAIRS: C.HAIRS, DEFAULT_AVATAR: C.DEFAULT_AVATAR, WORLD: C.WORLD, SHAPE_IDS: C.SHAPE_IDS,
     GOLD_MULT: C.GOLD_MULT, EXPAND_COST: C.EXPAND_COST, HOUSE_COST: C.HOUSE_COST,
-    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX, ORC: C.ORC, BANK: C.BANK, SLOT: { SYM: Casino.SL.SYM, PAY: Casino.SL.PAY, BUY_MULT: Casino.SL.BUY_MULT, FREE_SPINS: Casino.SL.FREE_SPINS, BASE_MULT: Casino.SL.BASE_MULT, FREE_MULT: Casino.SL.FREE_MULT, ROWS: Casino.SL.ROWS, COLS: Casino.SL.COLS },
+    SQUARE_COST: C.SQUARE_COST, SQUARE_GROW: C.SQUARE_GROW, SQUARE_MAX: C.SQUARE_MAX, ORC: C.ORC, BANK: C.BANK, CARS: C.CARS, CAR_COLORS: C.CAR_COLORS, CAR_SELL_RATE: C.CAR_SELL_RATE, BAR: C.BAR, MARKET: C.MARKET, INVEST_FEE: C.INVEST_FEE, SLOT: { SYM: Casino.SL.SYM, PAY: Casino.SL.PAY, BUY_MULT: Casino.SL.BUY_MULT, FREE_SPINS: Casino.SL.FREE_SPINS, BASE_MULT: Casino.SL.BASE_MULT, FREE_MULT: Casino.SL.FREE_MULT, ROWS: Casino.SL.ROWS, COLS: Casino.SL.COLS },
     TAP_MIN: C.TAP_MIN, TAP_MAX: C.TAP_MAX,
     ANIMALS: C.ANIMALS, PETS: C.PETS, PRODUCTS: C.PRODUCTS,
     MINIGAMES: C.MINIGAMES, BUSH_DROP: C.BUSH_DROP, BUSH_CD: C.BUSH_CD,
@@ -219,7 +239,9 @@ const r2 = n => Math.round(n * 100) / 100;
 function netWorth(u) {
   ensureUser(u);
   settleBank(u);
-  const b = { cash: r2(u.money || 0), bank: r2((u.bank.savings || 0) - (u.bank.loan || 0)), orc: u.orc ? C.ORC.price : 0, crops: 0, products: 0, seeds: 0, furniture: 0, clothes: 0, animals: 0, land: 0 };
+  const b = { cash: r2(u.money || 0), bank: r2((u.bank.savings || 0) - (u.bank.loan || 0)), orc: u.orc ? C.ORC.price : 0, cars: 0, invest: 0, crops: 0, products: 0, seeds: 0, furniture: 0, clothes: 0, animals: 0, land: 0 };
+  for (const id of u.cars || []) { const cd = CAR_BY[id]; if (cd) b.cars += cd.price * C.CAR_SELL_RATE; }
+  for (const [sym, h] of Object.entries(u.invest || {})) if (mkt[sym]) b.invest += h.units * mkt[sym].price;
   for (const [k, n] of Object.entries(u.crops || {})) { const sd = C.SEED_BY[k.replace('_gold', '')]; if (sd) b.crops += n * sd.sell * (k.endsWith('_gold') ? C.GOLD_MULT : 1); }
   for (const [k, n] of Object.entries(u.products || {})) if (C.PRODUCTS[k]) b.products += n * C.PRODUCTS[k].sell;
   for (const [k, n] of Object.entries(u.seeds || {})) if (C.SEED_BY[k]) b.seeds += n * (C.SEED_BY[k].cost || 0);
@@ -343,6 +365,7 @@ const meView = u => ({
   animals: u.animals, products: u.products, pets: u.pets,
   animalStay: u.animalStay, petStay: u.petStay, animalNames: u.animalNames, animalReady: u.animalReady, animalBorn: u.animalBorn, animalSex: u.animalSex,
   stallAt: u.stallAt, animalAt: u.animalAt, bushAt: u.bushAt, mail: u.mail, orc: u.orc, bank: bankView(u),
+  cars: u.cars, car: u.car, carCol: u.carCol, spouse: u.spouse, invest: u.invest,
 });
 const ownsLand = (u, i) => u.land === i || u.expandLand === i || u.houseLand === i;
 const sendMe = c => send(c.ws, { t: 'me', me: meView(c.u) });
@@ -351,6 +374,7 @@ const playerList = () => [...online.values()].map(c => ({
   n: c.u.name, x: Math.round(c.x), y: Math.round(c.y), a: c.u.avatar,
   animals: c.u.animals, pets: c.u.pets, animalStay: c.u.animalStay, petStay: c.u.petStay, animalNames: c.u.animalNames, animalReady: c.u.animalReady, animalBorn: c.u.animalBorn, animalSex: c.u.animalSex,
   e: c.emote || null, es: c.emoteAt || 0, orc: c.u.orc ? { n: c.u.orc.name, m: c.u.orc.mode } : null,
+  car: c.u.car ? { id: c.u.car, c: c.u.carCol[c.u.car] || null } : null, sp: c.u.spouse ? { n: c.u.spouse.name, l: c.u.spouse.look } : null,
   land: c.u.land, houseLand: c.u.houseLand, expandLand: c.u.expandLand,
 }));
 const landView = l => ({
@@ -1158,6 +1182,80 @@ wss.on('connection', ws => {
         touch(); sendMe(c);
         break;
       }
+      case 'car_buy': {
+        const cd = CAR_BY[m.id]; if (!cd) return;
+        if (u.cars.includes(cd.id)) return err('You already own the ' + cd.name + '.');
+        if (u.money < cd.price) return err('The ' + cd.name + ' costs $' + cd.price.toLocaleString() + '.');
+        u.money = r2m(u.money - cd.price); u.cars.push(cd.id); if (!u.car) u.car = cd.id;
+        touch(); sendMe(c); playersDirty = true; ok('You bought the ' + cd.name + '! Press C (or the Drive button) to hop in and out.');
+        break;
+      }
+      case 'car_sell': {
+        const cd = CAR_BY[m.id]; if (!cd || !u.cars.includes(cd.id)) return;
+        u.cars = u.cars.filter(x => x !== cd.id); delete u.carCol[cd.id]; if (u.car === cd.id) u.car = null;
+        const got = Math.round(cd.price * C.CAR_SELL_RATE); u.money = r2m(u.money + got);
+        touch(); sendMe(c); playersDirty = true; ok('Sold the ' + cd.name + ' for $' + got.toLocaleString() + '.');
+        break;
+      }
+      case 'car_drive': {
+        if (m.id == null) u.car = null; else if (u.cars.includes(m.id)) u.car = m.id; else return;
+        touch(); sendMe(c); playersDirty = true;
+        break;
+      }
+      case 'car_paint': {
+        if (!u.cars.includes(m.id) || !C.CAR_COLORS.includes(m.color)) return;
+        u.carCol[m.id] = m.color; touch(); sendMe(c); playersDirty = true;
+        break;
+      }
+      case 'bar_find': {
+        const want = m.want === 'husband' ? 'husband' : 'wife';
+        if (u.spouse) return err('You are already married to ' + u.spouse.name + '.');
+        if (Date.now() - (c.lastBar || 0) < 800) return;
+        c.lastBar = Date.now();
+        if (u.money < C.BAR.fee) return err('The bar tab is $' + C.BAR.fee.toLocaleString() + '.');
+        u.money = r2m(u.money - C.BAR.fee);
+        if (Math.random() < C.BAR.chance) {
+          const names = C.SPOUSE_NAMES[want], g = want === 'wife' ? 'f' : 'm', looks = g === 'f' ? [1, 3, 4, 7, 9] : [0, 2, 5, 6, 8];
+          u.spouse = { name: names[Math.floor(Math.random() * names.length)], gender: g, look: looks[Math.floor(Math.random() * looks.length)], since: Date.now() };
+          touch(); sendMe(c); playersDirty = true;
+          send(ws, { t: 'bar_result', ok: true, want, spouse: u.spouse });
+        } else {
+          touch(); sendMe(c);
+          send(ws, { t: 'bar_result', ok: false, want, line: ['They finished the drink and left without a word...', 'Not your type, they said, and wandered off.', 'They laughed, tipped their hat and walked out.', 'Someone else caught their eye. Better luck next time!'][Math.floor(Math.random() * 4)] });
+        }
+        break;
+      }
+      case 'bar_divorce': {
+        if (!u.spouse) return;
+        if (u.money < C.BAR.divorce) return err('The lawyer wants $' + C.BAR.divorce.toLocaleString() + '.');
+        u.money = r2m(u.money - C.BAR.divorce); const nm = u.spouse.name; u.spouse = null;
+        touch(); sendMe(c); playersDirty = true; ok('You and ' + nm + ' parted ways.');
+        break;
+      }
+      case 'invest_open': { send(ws, { t: 'market_hist', hist: Object.fromEntries(Object.entries(mkt).map(([k, v]) => [k, v.hist.slice(-120)])), open: Object.fromEntries(Object.entries(mkt).map(([k, v]) => [k, v.open])) }); sendMe(c); break; }
+      case 'invest_buy': {
+        const a = mkt[m.sym]; if (!a) return;
+        let amt = r2m(Number(m.amount)); if (m.amount === 'all') amt = r2m(u.money);
+        if (!(amt >= 1)) return err('Invest at least $1.');
+        if (amt > u.money + 0.001) return err('You only have $' + u.money.toLocaleString() + '.');
+        const units = Math.floor(amt * (1 - C.INVEST_FEE) / a.price * 1e8) / 1e8;
+        if (!(units > 0)) return err('Amount too small.');
+        u.money = r2m(u.money - amt);
+        const hd = u.invest[m.sym] || (u.invest[m.sym] = { units: 0, cost: 0 }); hd.units += units; hd.cost += amt;
+        touch(); sendMe(c); ok('Bought ' + (units < 1 ? units.toFixed(6) : units.toFixed(4)) + ' ' + m.sym + ' for $' + amt.toLocaleString() + '.');
+        break;
+      }
+      case 'invest_sell': {
+        const a = mkt[m.sym], hd = u.invest[m.sym]; if (!a || !hd || !(hd.units > 0)) return err('You do not own any ' + m.sym + '.');
+        let units = m.units === 'all' ? hd.units : Math.min(hd.units, Number(m.units));
+        if (!(units > 0)) return err('Nothing to sell.');
+        const got = r2m(units * a.price * (1 - C.INVEST_FEE)), frac = units / hd.units;
+        hd.cost = hd.cost * (1 - frac); hd.units -= units;
+        if (hd.units < 1e-9) delete u.invest[m.sym];
+        u.money = r2m(u.money + got);
+        touch(); sendMe(c); ok('Sold ' + m.sym + ' for $' + got.toLocaleString() + '.');
+        break;
+      }
       case 'mail_read': {
         const mm = u.mail.find(x => x.id === m.id); if (mm && !mm.read) { mm.read = true; touch(); sendMe(c); }
         break;
@@ -1209,6 +1307,12 @@ setInterval(() => {
   playersDirty = false;
   broadcast({ t: 'players', list: playerList() });
 }, 100);
+
+
+setInterval(() => {
+  marketTick();
+  broadcast({ t: 'market', p: Object.fromEntries(Object.entries(mkt).map(([k, v]) => [k, Math.round(v.price * 100) / 100])) });
+}, 1000);
 
 (async () => {
   if (useUpstash) { await loadFromUpstash(); console.log('Using Upstash Redis for storage'); }

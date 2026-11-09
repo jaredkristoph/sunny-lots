@@ -95,3 +95,8 @@ Sunny Lots is now a walled hub town. The **east gate** leads to **Route 1** (ope
 
 ## Organic world (east of the wall)
 Everything east of Sunny Lots is generated from fixed seeds in `public/monsters.js` (`TERRAIN`), so the server, every client and the map all agree: winding main road, jittered side trails with clearings/shrine plazas, blobby tall-grass meadows (wild encounters only happen on these tiles), ponds, rivers with bridges, sandy shores and natural forests. Static scenery is batched with InstancedMesh in `hd2d.js`.
+
+## Cars, bar and investing
+- **Sunny Motors** (east of the farms): six cars with speed boosts, repaint, resale at 60%. Press C or the Drive button to hop in/out. No wild encounters while driving.
+- **Sunny Bar**: pay $5,000 for a 50% chance of a wife or husband, who follows you and rides in your car. Divorce costs $2,000.
+- **Invest tab in Sunny Bank**: Bitbean (BTC), gold, six stocks, a real-estate fund and a bond. The server random-walks every price each second; 0.5% fee per trade. Prices reset to their base when the server restarts; holdings are saved.

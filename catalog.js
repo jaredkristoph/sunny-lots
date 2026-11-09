@@ -212,6 +212,8 @@ const WORLD = {
   bank: { x: 10.5, y: 10.4, w: 4, h: 3 },
   orcMarket: { x: 36.5, y: 10.4, w: 4, h: 3 },
   petShop: { x: 12, y: 24, w: 4, h: 3 },
+  carShop: { x: 50, y: 11, w: 6, h: 5 },
+  bar: { x: 42, y: 24.6, w: 4, h: 3 },
   pens: {
     chicken: { x: 1, y: 24, w: 4, h: 2 },
     cow: { x: 1, y: 26, w: 4, h: 2 },
@@ -345,9 +347,39 @@ const MINIGAMES = {
   race: { name: 'Race Simulator' },
 };
 
+// ---- Sunny Motors: cars (speed multiplies walking speed while driving) ----
+const CARS = [
+  { id: 'scooter', name: 'Pixel Scooter', price: 3000, speed: 1.35, col: '#ff6b6b', kind: 'scooter' },
+  { id: 'hatch', name: 'Sunny Hatchback', price: 12000, speed: 1.65, col: '#ffd43b', kind: 'hatch' },
+  { id: 'sedan', name: 'Family Sedan', price: 30000, speed: 1.9, col: '#4dabf7', kind: 'sedan' },
+  { id: 'pickup', name: 'Farm Pickup', price: 60000, speed: 2.05, col: '#51cf66', kind: 'pickup' },
+  { id: 'coupe', name: 'Turbo Coupe', price: 150000, speed: 2.4, col: '#e03131', kind: 'coupe' },
+  { id: 'super', name: 'Gold Supercar', price: 500000, speed: 2.9, col: '#f2b632', kind: 'super' },
+];
+const CAR_COLORS = ['#e03131', '#ff922b', '#ffd43b', '#51cf66', '#4dabf7', '#7048a8', '#f783ac', '#f1f3f5', '#343a40'];
+const CAR_SELL_RATE = 0.6;
+// ---- Sunny Bar: pay the fee, 50% chance somebody says yes ----
+const BAR = { fee: 5000, chance: 0.5, divorce: 2000 };
+const SPOUSE_NAMES = { wife: ['Rosie', 'Mina', 'Lily', 'Hazel', 'Daisy', 'Nora', 'Willow', 'Pearl', 'Ivy', 'Cleo'], husband: ['Jack', 'Theo', 'Milo', 'Oscar', 'Finn', 'Ezra', 'Hugo', 'Leo', 'Sam', 'Wade'] };
+// ---- Investing: prices random-walk every second (see server.js). vol = per-second volatility ----
+const MARKET = [
+  { sym: 'BTC', name: 'Bitbean', kind: 'crypto', base: 30000, vol: 0.0045 },
+  { sym: 'GLD', name: 'Sunny Gold', kind: 'metal', base: 2000, vol: 0.0012 },
+  { sym: 'SFI', name: 'Sunny Farms Inc.', kind: 'stock', base: 120, vol: 0.0022 },
+  { sym: 'ORC', name: 'Orc Ale Co.', kind: 'stock', base: 45, vol: 0.0030 },
+  { sym: 'TRB', name: 'Turbo Motors', kind: 'stock', base: 300, vol: 0.0026 },
+  { sym: 'BIT', name: 'Bitmon Games', kind: 'stock', base: 80, vol: 0.0036 },
+  { sym: 'JSS', name: 'Jar Sea Shipping', kind: 'stock', base: 60, vol: 0.0018 },
+  { sym: 'CAS', name: 'Casino Royale Corp.', kind: 'stock', base: 150, vol: 0.0028 },
+  { sym: 'REIT', name: 'Lots Real Estate Fund', kind: 'fund', base: 500, vol: 0.0008 },
+  { sym: 'BOND', name: 'Orc Treasury Bond', kind: 'bond', base: 1000, vol: 0.0003 },
+];
+const INVEST_FEE = 0.005;
+
 module.exports = {
   SEEDS, FURNITURE, CLOTHES, SKINS, HAIRS, DEFAULT_AVATAR, WORLD,
   GOLD_CHANCE, GOLD_MULT, START_MONEY, EXPAND_COST, HOUSE_COST, SQUARE_COST, SQUARE_GROW, SQUARE_MAX, squarePrice,
+  CARS, CAR_COLORS, CAR_SELL_RATE, BAR, SPOUSE_NAMES, MARKET, INVEST_FEE,
   ORC, BANK, TAP_MIN, TAP_MAX, NPC_HOME_FURN, NPC_HOME_VER,
   BUSH_DROP, BUSH_CD, BUSH_LOOT, ANIMALS, PETS, PRODUCTS, MINIGAMES, RARE_FURN, RARE_CLOTH,
   SHAPE_IDS: SHAPES.concat(BIG_SHAPES).map(s => s[0]),

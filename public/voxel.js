@@ -676,6 +676,66 @@ const Vox = (() => {
     for (const [x, z] of [[1.0, 1.7], [1.3, 1.8]]) { B.add(x, .14, z, .3, .24, .3, '#6fae4b'); B.add(x, .38, z, .22, .06, .22, '#4f8636'); }   // bushes
     return B;
   }
+
+  // ---- Cars (front = +z, open-top so the driver's sprite shows). kind: scooter|hatch|sedan|pickup|coupe|super ----
+  function carBoxes(kind, col) {
+    const B = mk(), dk = darken(col, .25), lt = lighten(col, .3), glass = '#9fd3ee', tire = '#1d1d22', rim = '#cfd4da';
+    const wheel = (x, z, r) => { B.add(x, 0, z, .16, r, r, tire); B.add(x + (x > 0 ? .09 : -.09), .04, z, .03, r - .08, r - .08, rim); };
+    const lights = (w, z, y) => { B.add(-w, y, z, .16, .09, .04, '#fff6b0'); B.add(w, y, z, .16, .09, .04, '#fff6b0'); B.add(-w, y, -z, .16, .09, .04, '#d94a3a'); B.add(w, y, -z, .16, .09, .04, '#d94a3a'); };
+    if (kind === 'scooter') {
+      wheel(0, .5, .3); wheel(0, -.5, .3); B.add(0, .24, 0, .28, .14, 1.0, col); B.add(0, .38, -.2, .3, .1, .5, dk); B.add(0, .24, .5, .1, .5, .1, '#555'); B.add(0, .72, .5, .5, .06, .08, '#333'); B.add(0, .32, .6, .14, .1, .06, '#fff6b0');
+      return B;
+    }
+    const L = { hatch: 1.7, sedan: 2.1, pickup: 2.3, coupe: 2.0, super: 2.2 }[kind] || 2, W = kind === 'super' ? 1.1 : kind === 'coupe' ? 1.05 : .95, hh = kind === 'super' ? .26 : .3, hz = L / 2;
+    const wr = kind === 'pickup' ? .4 : kind === 'super' ? .3 : .34;
+    for (const sx of [-1, 1]) { wheel(sx * (W / 2 - .02), hz * .6, wr); wheel(sx * (W / 2 - .02), -hz * .6, wr); }
+    B.add(0, .12, 0, W, hh, L, col);                                           // lower body
+    B.add(0, .12 + hh, hz * .55, W * .96, .1, L * .3, lt);                       // hood
+    B.add(0, .12 + hh, -hz * .62, W * .96, .08, L * .24, dk);                    // trunk
+    B.add(0, .12 + hh, 0, W - .1, .02, L * .35, dk);                             // cockpit floor line
+    for (const sx of [-1, 1]) { B.add(sx * (W / 2 - .03), .12 + hh, hz * .22, .05, .2, .06, glass, .55); B.add(sx * (W / 2 - .03), .12 + hh, -hz * .22, .05, .12, .06, dk); }   // door sills
+    B.add(0, .12 + hh + .02, hz * .24, W - .08, .26, .05, glass, .35);          // windscreen
+    B.add(0, .2, -hz * .08, W - .24, .08, .5, '#3a3a44');                       // seats
+    B.add(0, .3, -hz * .18, W - .26, .18, .1, '#4a4a56');                        // seat backs
+    lights(W / 2 - .2, hz, .24);
+    if (kind === 'pickup') { B.add(0, .12 + hh, -hz * .55, W, .1, L * .4, '#7a5a3a'); for (const sx of [-1, 1]) B.add(sx * (W / 2 - .03), .12 + hh + .1, -hz * .55, .06, .2, L * .42, col); B.add(0, .12 + hh + .1, -hz * .95, W, .2, .06, col); }
+    if (kind === 'coupe') { B.add(0, .12 + hh + .08, -hz * .88, W * .8, .06, .22, dk); for (const sx of [-1, 1]) B.add(sx * W * .3, .12 + hh, -hz * .88, .06, .1, .1, dk); B.add(0, .2, hz * .96, .5, .06, .04, '#222'); }
+    if (kind === 'super') { B.add(0, .12 + hh + .12, -hz * .92, W * .96, .05, .3, '#111'); for (const sx of [-1, 1]) B.add(sx * W * .38, .12 + hh, -hz * .9, .06, .14, .1, '#111'); B.add(0, .16, 0, W + .02, .05, L * .98, '#f2e09a'); B.add(0, .12 + hh + .02, hz * .86, W * .8, .04, .1, '#222'); }
+    if (kind === 'hatch') B.add(0, .12 + hh, -hz * .72, W * .94, .22, .06, glass, .4);
+    return B;
+  }
+  // ---- Car dealership (6 x 5 tiles): glass showroom, red roof, two cars on display ----
+  function carShopBoxes() {
+    const B = mk(), red = '#c0392b', wall = '#f1ece0', floor = '#4a4f5a';
+    B.add(0, 0, 0, 6.0, .14, 5.0, '#8d8878'); B.add(0, .14, -.3, 5.4, .06, 3.9, floor);                     // plinth + showroom floor
+    B.add(0, .2, -2.15, 5.6, 1.9, .16, wall);                                                              // back wall
+    for (const sx of [-1, 1]) B.add(sx * 2.75, .2, -.4, .16, 1.9, 3.6, wall);                              // side walls
+    B.add(0, .2, 1.4, 5.4, 1.5, .06, '#bfe6f7', .3);                                                       // glass front
+    for (const x of [-2.7, -1.35, 0, 1.35, 2.7]) B.add(x, .2, 1.4, .1, 1.7, .1, '#d0d4da');                  // frame posts
+    B.add(0, 1.95, -.4, 6.0, .16, 4.0, red); B.add(0, 2.1, -.4, 5.8, .08, 3.8, '#e0584a');                  // roof
+    B.add(0, 1.75, 1.45, 6.0, .2, .12, '#ffffff'); B.add(0, 1.78, 1.52, 5.6, .14, .04, red);               // sign band
+    for (let i = 0; i < 5; i++) B.add(-2.4 + i * 1.2, 1.8, 1.56, .5, .1, .03, i % 2 ? '#ffd43b' : '#fff');
+    B.add(-1.3, .2, -.3, 1, .06, 1.9, '#2a2d35'); B.add(1.3, .2, -.3, 1, .06, 1.9, '#2a2d35');            // display pads
+    B.add(-1.3, .26, -.3, 1, .02, 1.9, '#2a2d35');
+    for (const [x, c, k] of [[-1.3, '#4dabf7', 'sedan'], [1.3, '#e03131', 'coupe']]) for (const b of carBoxes(k, c)) B.add(x + b.x, .26 + b.y, -.3 + b.z, b.w, b.h, b.d, b.c, b.a);
+    B.add(2.3, .14, 2.0, .5, .5, .5, '#2f8f4a'); B.add(2.3, .6, 2.0, .6, .3, .6, '#3fae5a'); B.add(-2.3, .14, 2.0, .5, .5, .5, '#2f8f4a'); B.add(-2.3, .6, 2.0, .6, .3, .6, '#3fae5a');  // planters
+    B.add(-2.1, 2.2, 1.5, .3, .6, .08, red); B.add(2.1, 2.2, 1.5, .3, .6, .08, red);                       // pennants
+    return B;
+  }
+  // ---- Sunny Bar (4 x 3 tiles): timber tavern with striped awning, neon mug sign, barrels ----
+  function barBoxes() {
+    const B = mk(), wood = '#7a4a24', woodD = '#4e2f16', brick = '#b0533a';
+    B.add(0, 0, 0, 4.0, .12, 3.0, '#6b6458');
+    B.add(0, .12, -.2, 3.6, 1.7, 2.4, brick); for (let i = 0; i < 6; i++) B.add(-1.5 + i * .6, .6 + (i % 2) * .5, 1.01, .5, .12, .02, '#c96a4e');
+    B.add(0, 1.82, -.2, 3.9, .16, 2.7, woodD); B.add(0, 1.98, -.2, 3.5, .14, 2.3, '#5e3a1c');
+    for (let i = 0; i < 8; i++) B.add(-1.75 + i * .5, 1.2 + (i < 4 ? 0 : 0), 1.3, .5, .1, .8, i % 2 ? '#f1ead6' : '#c0392b');   // awning
+    B.add(-.9, .12, 1.02, .9, 1.0, .06, '#e9c46a', .5); B.add(.8, .12, 1.02, .9, 1.0, .06, '#e9c46a', .5);  // warm windows
+    B.add(0, .12, 1.02, .6, 1.1, .08, woodD);                                                              // door
+    B.add(0, 1.5, 1.45, 1.2, .5, .12, '#1a1a22'); B.add(-.2, 1.55, 1.52, .4, .34, .04, '#ffd24d'); B.add(.15, 1.62, 1.52, .16, .2, .04, '#ffd24d'); B.add(.3, 1.68, 1.5, .1, .1, .04, '#fff');   // neon mug sign
+    for (const x of [-1.7, 1.7]) { B.add(x, .12, 1.3, .5, .55, .5, '#8a5a2b'); B.add(x, .67, 1.3, .54, .05, .54, '#c9a066'); B.add(x, .35, 1.3, .56, .04, .56, '#3a2a18'); }   // barrels
+    B.add(1.5, .12, 1.2, .5, .12, .5, '#f1ead6');                                                          // stool
+    return B;
+  }
   // ---- Super Ace Slots cabinet ----
   function slotBoxes() {
     const B = mk(), red = '#c0392b', gold = '#f2b632';
@@ -890,5 +950,5 @@ const Vox = (() => {
     return modelHomeBase().concat(modelHomeShell(alpha == null ? 1 : alpha));
   }
 
-  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, baccaratBoxes, highlowBoxes, bankBoxes, orcMarketBoxes, slotBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
+  return { tree, shrub, tuft, wildflower, View, mk, charBoxes, plantBoxes, plantStage, sparkles, furnModel, renderIcon, darken, lighten, stallBoxes, penFence, animalBoxes, petBoxes, bushBoxes, shopBox, slideBoxes, parkBench, landPost, rouletteBoxes, blackjackBoxes, baccaratBoxes, highlowBoxes, bankBoxes, orcMarketBoxes, carBoxes, carShopBoxes, barBoxes, slotBoxes, modelHomeCottage, modelHomeBase, modelHomeShell };
 })();

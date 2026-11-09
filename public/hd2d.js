@@ -778,7 +778,7 @@ class View {
   addCharacter(avatar, cat, x, z, scale, walk, moving, extra) {
     const frame = walkFrame(walk || 0, !!moving);
     const tex = makeCharSprite(avatar, cat, frame);
-    this.addBillboard(tex, x, 0, z, Object.assign({ scale: scale || 1.05, walk: walk || 0, moving: !!moving }, extra || {}));
+    this.addBillboard(tex, x, (extra && extra.y) || 0, z, Object.assign({ scale: scale || 1.05, walk: walk || 0, moving: !!moving }, extra || {}));
   }
 
   flush() {

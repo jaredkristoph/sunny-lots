@@ -45,6 +45,8 @@
 
   // ---------- state ----------
   let token = localStorage.getItem('sl_token');
+  const market = { p: {}, hist: {}, open: {}, sel: 'BTC', prev: {} };
+  let barResult = null;
   let ws = null, me = null, lands = [], players = {}, myName = '', SPEED = 1, clockOff = 0, loggedOut = false;
   const self = { x: 0, y: 0, psi: 0, walk: 0, say: null };           // x,y in server px (48 per tile)
   const keys = new Set();
@@ -142,7 +144,7 @@
     if (po.es !== p.es) { po.es = p.es; po.emote = p.e || null; po.emoteSince = performance.now(); }   // new emote (or cleared)
     Object.assign(po, {
       animalNames: p.animalNames || {}, animalReady: p.animalReady || {}, animalBorn: p.animalBorn || {}, animalSex: p.animalSex || {}, animals: p.animals || {}, pets: p.pets || [], animalStay: p.animalStay || 'farm', petStay: p.petStay || 'follow',
-      land: p.land, houseLand: p.houseLand, expandLand: p.expandLand, orc: p.orc || null,
+      land: p.land, houseLand: p.houseLand, expandLand: p.expandLand, orc: p.orc || null, car: p.car || null, sp: p.sp || null,
     });
   }
   function onMsg(m) {
@@ -161,6 +163,9 @@
         if (!me.charDone) openCreator();
         if (m.mb) bit.start({ view: m.mb, events: [{ k: 'msg', text: 'Back in the battle!' }] });
         break;
+      case 'market': { market.p = m.p; for (const k in m.p) { const a = market.hist[k] || (market.hist[k] = []); a.push(m.p[k]); if (a.length > 120) a.shift(); } invTick(); break; }
+      case 'market_hist': market.hist = m.hist; market.open = m.open; invTick(true); break;
+      case 'bar_result': barResult = m; if (modalRefresh) modalRefresh(); break;
       case 'me': me = m.me; updateHud(); if (modalRefresh && !(typing() && $('#overlay').contains(document.activeElement))) modalRefresh(); break;
       case 'players': {
         const seen = new Set(m.list.map(p => p.n));
@@ -218,6 +223,7 @@
   const unreadMail = () => ((me && me.mail) || []).filter(m => !m.read).length;
   let lastUnread = 0;
   function updateHud() {
+    syncCarBtn();
     $('#hud-name').textContent = '👤 ' + me.name; $('#hud-money').textContent = '💰 ' + money(me.money);
     const n = unreadMail(), b = $('#mail-badge');
     if (b) { b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
@@ -527,7 +533,7 @@
     const T = WALL.t * TILE;
     self.x = Math.max(T + 4, Math.min(WALL.x1 * TILE - T - 4, self.x)); self.y = Math.max(T + 4, Math.min(WALL.y1 * TILE - T - 4, self.y));
   };
-  const solidRects = [WD.bank, WD.orcMarket, ...(WD.centers || []), ...(MD ? MD.GYMS : [])].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
+  const solidRects = [WD.bank, WD.orcMarket, WD.carShop, WD.bar, ...(WD.centers || []), ...(MD ? MD.GYMS : [])].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
   const blocked = (x, y) => (wallHit(x, y) && !wallHit(self.x, self.y)) || solidRects.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1) || (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
     || (TR && kindAt(Math.floor(x / TILE), Math.floor(y / TILE)) === TK.WATER)
     || (seaSet.size > 0 && isSea(Math.floor(x / TILE), Math.floor(y / TILE)) && !dockSet.has(Math.floor(x / TILE) + ',' + Math.floor(y / TILE)));
@@ -713,6 +719,8 @@
     for (const s of (WD.stalls || [])) piece(Vox.stallBoxes(s.id), s.x, s.y, 1.4);
     for (const t of (WD.casino || [])) piece(t.id === 'roulette' ? Vox.rouletteBoxes() : t.id === 'slots' ? Vox.slotBoxes() : t.id === 'baccarat' ? Vox.baccaratBoxes() : t.id === 'highlow' ? Vox.highlowBoxes() : Vox.blackjackBoxes(), t.x, t.y, 1.4);
     if (WD.bank) piece(Vox.bankBoxes(), WD.bank.x + WD.bank.w / 2, WD.bank.y + WD.bank.h / 2, 2.4);
+    if (WD.carShop) piece(Vox.carShopBoxes(), WD.carShop.x + WD.carShop.w / 2, WD.carShop.y + WD.carShop.h / 2, 2.4);
+    if (WD.bar) piece(Vox.barBoxes(), WD.bar.x + WD.bar.w / 2, WD.bar.y + WD.bar.h / 2, 2.4);
     if (WD.orcMarket) piece(Vox.orcMarketBoxes(), WD.orcMarket.x + WD.orcMarket.w / 2, WD.orcMarket.y + WD.orcMarket.h / 2, 2.4);
     for (const [id, p] of Object.entries(WD.pens || {})) {
       piece(Vox.penFence(p.w - .4, p.h - .4), p.x + p.w / 2, p.y + p.h / 2, Math.max(p.w, p.h));
@@ -762,6 +770,29 @@
     { gender: 'male', skin: '#5c3a1e', hairColor: '#2b1b0e', top: 'top_chef', bottom: 'bot_khaki', hat: 'hat_cowboy', shoes: 'shoe_boots' },
     { gender: 'female', skin: '#f5cba0', hairColor: '#2e86de', top: 'top_tee_white', bottom: 'bot_shorts_grey', hat: 'hat_helmet', shoes: 'shoe_plain' },
   ];
+  // ---- driving: cars under players, spouse rides along or follows on foot ----
+  const carBoxCache = {};
+  const carModel = (id, col) => { const d = carDef(id); if (!d) return null; const c = col || d.col, k = d.kind + c; return carBoxCache[k] || (carBoxCache[k] = Vox.carBoxes(d.kind, c)); };
+  const SP_SEAT = .2;
+  function drawPerson(av, x, z, scale, walk, moving, car, psi, seat, extra) {   // seat: local x offset inside a car
+    if (car && seat != null) { x += seat * Math.cos(psi); z -= seat * Math.sin(psi); moving = false; }
+    view.addCharacter(av, cat, x, z, scale, walk, moving, car && seat != null ? Object.assign({ y: .16 }, extra) : extra);
+  }
+  function drawCarRider(own) {   // own: {x,z (tiles), psi, car:{id,c}, sp:{n,l}, av, walk, moving, key, st, dt, scale, extra}
+    const m = own.car ? carModel(own.car.id, own.car.c) : null;
+    if (m) view.add(m, own.x, 0, own.z, own.psi, 1);
+    drawPerson(own.av, own.x, own.z, own.scale, own.walk, own.moving, !!m, own.psi, m ? (own.sp ? -SP_SEAT : 0) : null, own.extra);
+    if (!own.sp) { own.st.on = false; return; }
+    const look = NPC_LOOKS[(own.sp.l || 0) % NPC_LOOKS.length];
+    if (m) { own.st.on = false; drawPerson(look, own.x, own.z, 1.0, 0, false, true, own.psi, SP_SEAT, { pump: { speed: 2, amp: .02, ph: 2 } }); return; }
+    const st = own.st;
+    if (!st.on || Math.hypot(st.x - own.x, st.z - own.z) > 8) { st.x = own.x + .9; st.z = own.z + .5; st.on = true; st.walk = 0; }
+    const dx = own.x - st.x, dz = own.z - st.z, d = Math.hypot(dx, dz);
+    st.moving = d > 1.35;
+    if (st.moving) { const stp = Math.min(d - 1.2, (own.moving ? 4.4 : 3.2) * own.dt); st.x += dx / d * stp; st.z += dz / d * stp; st.walk += own.dt * 10; }
+    view.addCharacter(look, cat, st.x, st.z, 1.0, st.walk, st.moving, { pump: { speed: 2, amp: .02, ph: 2 } });
+  }
+  const spFol = { x: 0, z: 0, on: false, walk: 0, moving: false };
   const monFol = { x: 0, z: 0, on: false, walk: 0, moving: false, id: 0, name: '' };
   const monActors = () => (MD && WALL ? MD.NPCS.concat(MD.TRAINERS) : []);
   const beatenSet = () => new Set((me && me.mon && me.mon.beaten) || []);
@@ -772,7 +803,7 @@
     const tx = Math.floor(self.x / TILE), ty = Math.floor(self.y / TILE), k = tx + ',' + ty;
     if (k !== lastGT) {
       lastGT = k;
-      if (inGrass(tx, ty) && performance.now() > encCool) {
+      if (inGrass(tx, ty) && performance.now() > encCool && !myCar()) {
         grassSteps++;
         if (grassSteps >= 3 && Math.random() < 1 / 9) { grassSteps = 0; encCool = performance.now() + 3500; send({ t: 'mon_encounter', route: 'r' + (MD.grassRouteAt(tx, ty) || 1) }); }
       }
@@ -815,7 +846,7 @@
       }
       if (ab) return ab.a.team ? { trainer: ab.a } : { npc: ab.a }; }
     for (const t of (WD.casino || [])) if (Math.hypot(g0.x - t.x, g0.z - t.y) < 1.4) return { casino: t };
-    for (const [kk, r] of [['bank', WD.bank], ['orcMarket', WD.orcMarket]]) if (r && g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { [kk]: true };
+    for (const [kk, r] of [['bank', WD.bank], ['orcMarket', WD.orcMarket], ['carShop', WD.carShop], ['bar', WD.bar]]) if (r && g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { [kk]: true };
     for (const r of (WD.centers || [])) if (g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { center: true };
     if (MD && WALL) {
       for (const g of MD.GYMS) if (g0.x > g.x - .1 && g0.x < g.x + g.w + .1 && g0.z > g.y - 1.8 && g0.z < g.y + g.h + .1) return { gym: g };
@@ -860,6 +891,8 @@
     if (hit.shop) return tryShop();
     if (hit.bank) return openBank();
     if (hit.orcMarket) return openOrc();
+    if (hit.carShop) return openCarShop();
+    if (hit.bar) return openBar();
     if (hit.center) return bit.openCenter();
     if (hit.gym) return bit.challenge(MD.TRAINERS.find(t => t.id === hit.gym.id));
     if (hit.shrine) return bit.shrine(hit.shrine);
@@ -1123,9 +1156,105 @@
   $('#b-mon').onclick = () => me && bit.openParty();
   $('#b-map').onclick = () => me && bit.openMap();
 
+
+  // ---------- 📈 Investing (Bitbean, gold, stocks, funds, bonds — prices move every second) ----------
+  const fmtP = n => n == null ? '—' : '$' + (n >= 1000 ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : n.toFixed(2));
+  const spark = (arr, w, hh, col) => {
+    if (!arr || arr.length < 2) return '';
+    const mn = Math.min(...arr), mx = Math.max(...arr), rg = (mx - mn) || 1;
+    const pts = arr.map((v, i) => (i / (arr.length - 1) * w).toFixed(1) + ',' + (hh - 2 - (v - mn) / rg * (hh - 4)).toFixed(1)).join(' ');
+    return '<svg width="' + w + '" height="' + hh + '" viewBox="0 0 ' + w + ' ' + hh + '"><polyline fill="none" stroke="' + col + '" stroke-width="1.6" points="' + pts + '"/></svg>';
+  };
+  const holdOf = sym => (me && me.invest && me.invest[sym]) || { units: 0, cost: 0 };
+  const portfolio = () => { let v = 0, c = 0; for (const a of cat.MARKET) { const hd = holdOf(a.sym); if (hd.units > 0) { v += hd.units * (market.p[a.sym] || a.base); c += hd.cost; } } return { v, c }; };
+  function invTick(force) {
+    if (!$('#inv-root')) return;
+    for (const a of cat.MARKET) {
+      const pr = market.p[a.sym]; if (pr == null) continue;
+      const open = market.open[a.sym] || a.base, chg = (pr / open - 1) * 100, up = pr >= (market.prev[a.sym] || pr), hist = market.hist[a.sym] || [];
+      const e1 = $('#ip-' + a.sym), e2 = $('#ic-' + a.sym), e3 = $('#is-' + a.sym), e4 = $('#iv-' + a.sym);
+      if (e1) { e1.textContent = fmtP(pr); e1.style.color = up ? '#2b8a3e' : '#c92a2a'; }
+      if (e2) { e2.textContent = (chg >= 0 ? '▲ ' : '▼ ') + Math.abs(chg).toFixed(2) + '%'; e2.style.color = chg >= 0 ? '#2b8a3e' : '#c92a2a'; }
+      if (e3) e3.innerHTML = spark(hist.slice(-60), 80, 24, chg >= 0 ? '#2b8a3e' : '#c92a2a');
+      const hd = holdOf(a.sym);
+      if (e4) { if (hd.units > 0) { const val = hd.units * pr, pl = val - hd.cost; e4.innerHTML = '<b>' + money(val) + '</b><div style="font-size:11px;color:' + (pl >= 0 ? '#2b8a3e' : '#c92a2a') + '">' + (pl >= 0 ? '+' : '−') + money(Math.abs(pl)) + '</div>'; } else e4.textContent = ''; }
+      market.prev[a.sym] = pr;
+    }
+    const pf = portfolio(), t = $('#inv-total');
+    if (t) { const pl = pf.v - pf.c; t.innerHTML = 'Portfolio <b>' + money(pf.v) + '</b> <span style="color:' + (pl >= 0 ? '#2b8a3e' : '#c92a2a') + '">(' + (pl >= 0 ? '+' : '−') + money(Math.abs(pl)) + ')</span>'; }
+    const ch = $('#inv-chart'), sel = cat.MARKET.find(a => a.sym === market.sel);
+    if (ch && sel) { const hist = market.hist[sel.sym] || [], pr = market.p[sel.sym]; const chg = pr != null ? pr / (market.open[sel.sym] || sel.base) - 1 : 0; ch.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><b>' + sel.name + ' (' + sel.sym + ')</b><b style="font-size:18px">' + fmtP(pr) + '</b></div>' + spark(hist, 440, 90, chg >= 0 ? '#2b8a3e' : '#c92a2a') + '<div class="muted" style="font-size:11px">last ' + hist.length + ' seconds</div>'; }
+  }
+  function buildInvest() {
+    const root = h('div', { id: 'inv-root', style: 'display:flex;flex-direction:column;gap:8px' });
+    const amt = h('input', { class: 'txt', type: 'number', min: 1, step: 'any', placeholder: 'Amount in $', value: bankUI.iamt || '', style: 'width:140px' });
+    amt.oninput = () => { bankUI.iamt = amt.value; };
+    const buy = v => { const a = v === 'all' ? 'all' : Number(v); if (v !== 'all' && !(a > 0)) return toast('Enter an amount first.', true); send({ t: 'invest_buy', sym: market.sel, amount: a }); };
+    const sell = u => send({ t: 'invest_sell', sym: market.sel, units: u === 'all' ? 'all' : holdOf(market.sel).units * u });
+    root.append(
+      h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:6px' }, h('div', { id: 'inv-total' }), h('div', { class: 'muted' }, 'Cash ' + money(me.money) + ' · fee ' + (cat.INVEST_FEE * 100).toFixed(1) + '% per trade')),
+      h('div', { id: 'inv-chart', style: 'background:#fff;border:2px solid #e3c88a;border-radius:10px;padding:6px 10px' }),
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;align-items:center' }, amt,
+        h('button', { class: 'btn green', onclick: () => buy(amt.value) }, 'Buy ' + market.sel), h('button', { class: 'btn sm', onclick: () => buy('all') }, 'All cash'),
+        h('button', { class: 'btn sm', onclick: () => sell(.25) }, 'Sell 25%'), h('button', { class: 'btn sm', onclick: () => sell(.5) }, 'Sell 50%'), h('button', { class: 'btn', onclick: () => sell('all') }, 'Sell all')),
+      h('div', { class: 'list' }, cat.MARKET.map(a => h('div', { class: 'lrow', style: 'cursor:pointer;gap:8px;' + (a.sym === market.sel ? 'background:#fff6d6' : ''), onclick: () => { market.sel = a.sym; modalRefresh(); invTick(); } },
+        h('span', { style: 'width:46px;font-weight:900' }, a.sym), h('span', { class: 'grow' }, h('div', {}, a.name), h('div', { class: 'muted', style: 'font-size:11px' }, a.kind)),
+        h('span', { id: 'is-' + a.sym }), h('span', { style: 'text-align:right;min-width:92px' }, h('b', { id: 'ip-' + a.sym }), h('div', { id: 'ic-' + a.sym, style: 'font-size:11px' })), h('span', { id: 'iv-' + a.sym, style: 'text-align:right;min-width:78px' })))),
+      h('div', { class: 'muted', style: 'font-size:12px' }, 'Prices are shared by everyone and wander up and down every second. Bitbean is wild, bonds are calm. Past results are no promise of future ones!'));
+    setTimeout(() => invTick(), 0);
+    return root;
+  }
+
+  // ---------- 🚗 Sunny Motors + driving ----------
+  const carDef = id => (cat.CARS || []).find(c => c.id === id) || null;
+  const myCar = () => (me && me.car ? carDef(me.car) : null);
+  const carColor = (id, col) => col || (carDef(id) || {}).col;
+  const carIcon = (c, col) => h('img', { style: 'width:96px;height:64px', src: iconURL('car' + c.id + col, () => Vox.renderIcon(Vox.carBoxes(c.kind, col), { w: 96, h: 64, ppt: 30, psi: fpsiFor(.78), hcf: .9 })) });
+  function toggleDrive() {
+    if (!me || !me.cars || !me.cars.length) return openCarShop();
+    if (monBattle || modalOpen()) return;
+    if (me.car) send({ t: 'car_drive', id: null }); else send({ t: 'car_drive', id: me.cars[0] });
+  }
+  function syncCarBtn() { const b = $('#b-car'); if (!b || !me) return; b.hidden = !(me.cars && me.cars.length); b.textContent = me.car ? '🚗 Park' : '🚗 Drive'; }
+  function openCarShop() {
+    openModal('🚗 Sunny Motors', () => {
+      const owned = new Set(me.cars || []);
+      return h('div', {}, h('div', { class: 'muted', style: 'margin-bottom:6px' }, 'Cash ' + money(me.money) + '  ·  Press C (or the Drive button) to hop in and out. Cars make you faster, but you cannot meet wild bitmonsters in the grass while driving.'),
+        h('div', { class: 'list' }, cat.CARS.map(c => {
+          const own = owned.has(c.id), col = carColor(c.id, (me.carCol || {})[c.id]);
+          return h('div', { class: 'lrow', style: 'gap:10px;align-items:center;flex-wrap:wrap' }, carIcon(c, col),
+            h('span', { class: 'grow' }, h('b', {}, c.name), h('div', { class: 'muted', style: 'font-size:12px' }, '⚡ ' + c.speed.toFixed(2) + '× speed'),
+              own ? h('div', { class: 'row', style: 'gap:3px;margin-top:3px;flex-wrap:wrap' }, cat.CAR_COLORS.map(k => h('button', { title: 'Repaint', style: 'width:18px;height:18px;border-radius:50%;border:2px solid ' + (k === col ? '#222' : '#fff') + ';background:' + k + ';padding:0;cursor:pointer', onclick: () => send({ t: 'car_paint', id: c.id, color: k }) }))) : null),
+            own ? h('span', { class: 'row', style: 'gap:4px' }, h('button', { class: 'btn sm' + (me.car === c.id ? ' green' : ''), onclick: () => send({ t: 'car_drive', id: me.car === c.id ? null : c.id }) }, me.car === c.id ? 'Driving' : 'Drive'),
+              h('button', { class: 'btn sm', onclick: () => { if (confirm('Sell the ' + c.name + ' for ' + money(Math.round(c.price * cat.CAR_SELL_RATE)) + '?')) send({ t: 'car_sell', id: c.id }); } }, 'Sell'))
+              : h('button', { class: 'btn green', disabled: me.money < c.price, onclick: () => send({ t: 'car_buy', id: c.id }) }, money(c.price)));
+        })));
+    });
+  }
+  $('#b-car') && ($('#b-car').onclick = () => toggleDrive());
+
+  // ---------- 🍺 Sunny Bar ----------
+  function openBar() {
+    barResult = null;
+    openModal('🍺 Sunny Bar', () => {
+      const B = cat.BAR, sp = me.spouse, r = barResult;
+      if (sp) return h('div', { class: 'center', style: 'gap:8px' }, h('div', { style: 'font-size:52px' }, sp.gender === 'f' ? '💍👰' : '💍🤵'),
+        h('div', { style: 'font-size:20px;font-weight:900' }, 'Married to ' + sp.name), h('div', {}, 'Your ' + (sp.gender === 'f' ? 'wife' : 'husband') + ' follows you around the world and rides in your car.'),
+        h('div', { class: 'muted' }, 'Married since ' + new Date(sp.since).toLocaleDateString()),
+        h('button', { class: 'btn', disabled: me.money < B.divorce, onclick: () => { if (confirm('Divorce ' + sp.name + ' for ' + money(B.divorce) + '?')) send({ t: 'bar_divorce' }); } }, 'Divorce · ' + money(B.divorce)));
+      const go = want => h('button', { class: 'btn green', disabled: me.money < B.fee, style: 'flex:1', onclick: () => { barResult = null; send({ t: 'bar_find', want }); } }, (want === 'wife' ? '👰 Find a wife' : '🤵 Find a husband') + ' · ' + money(B.fee));
+      return h('div', { class: 'center', style: 'gap:8px' }, h('div', { style: 'font-size:52px' }, '🍻'),
+        h('div', { style: 'font-size:18px;font-weight:900' }, 'Buy a round and see who bites!'),
+        h('div', {}, 'Pay the ' + money(B.fee) + ' bar tab. There is a ', h('b', {}, Math.round(B.chance * 100) + '% chance'), ' someone falls for you. If not, the money is gone.'),
+        r ? h('div', { style: 'background:' + (r.ok ? '#d3f9d8' : '#fff1c9') + ';border:2px solid #e3c88a;border-radius:10px;padding:8px;font-weight:700' }, r.ok ? '💘 ' + r.spouse.name + ' said YES! You are now married!' : '💔 ' + r.line) : null,
+        h('div', { class: 'muted' }, 'You have ' + money(me.money)),
+        h('div', { class: 'row', style: 'gap:8px;width:100%' }, go('wife'), go('husband')));
+    });
+  }
+
   // ---------- 🏦 Sunny Bank ----------
   const bankUI = { amt: '', tab: 'save', stamp: 0 };
-  function openBank() { if (!me) return; send({ t: 'bank_open' }); openModal('🏦 Sunny Bank', buildBank); }
+  function openBank() { if (!me) return; send({ t: 'bank_open' }); if (bankUI.tab === 'inv') send({ t: 'invest_open' }); openModal('🏦 Sunny Bank', buildBank); }
   function buildBank() {
     const B = cat.BANK, b = me.bank || { savings: 0, loan: 0, loanTaken: 0, days: 0, eligible: false };
     bankUI.stamp = Date.now();
@@ -1162,8 +1291,8 @@
         h('button', { class: 'btn sm', disabled: !(b.loan > 0.005), onclick: go('bank_repay', true) }, 'Repay all')));
     return h('div', {},
       h('div', { class: 'row', style: 'gap:6px;margin-bottom:8px' }, card('Cash', money(me.money)), card('Savings', money(b.savings), '#2b8a3e'), card('Loan owed', money(b.loan), b.loan > 0.005 ? '#c92a2a' : '')),
-      tabs([['save', '💰 Savings'], ['loan', '🧾 Loan']], bankUI.tab, t => { bankUI.tab = t; }),
-      bankUI.tab === 'save' ? saveTab : loanTab);
+      tabs([['save', '💰 Savings'], ['loan', '🧾 Loan'], ['inv', '📈 Invest']], bankUI.tab, t => { bankUI.tab = t; if (t === 'inv') send({ t: 'invest_open' }); }),
+      bankUI.tab === 'save' ? saveTab : bankUI.tab === 'inv' ? buildInvest() : loanTab);
   }
   $('#b-bank').onclick = () => openBank();
 
@@ -1719,6 +1848,7 @@
     if (k === 'b') openBag();
     if (k === 'm') bit.openParty();
     if (k === 'n') bit.openMap();
+    if (k === 'c') toggleDrive();
     if (k === 'i') openWardrobe();
     if (k === 'g') openEmotes();
     if (k === 'q') rotate(-1);
@@ -2000,7 +2130,7 @@
       let wx = c * ix - s * iy, wz = -s * ix - c * iy; const l = Math.hypot(wx, wz); wx /= l; wz /= l;
       const mag = stick.active ? Math.min(1, Math.hypot(stick.x, stick.y)) : 1;
       const sprint = keys.has('shift') || stick.run;
-      const sp = (sprint ? 280 : 190) * dt * mag;
+      const sp = (sprint ? 280 : 190) * dt * mag * (myCar() ? myCar().speed : 1);
       let nx = Math.max(10, Math.min(WD.width * TILE - 10, self.x + wx * sp)), ny = Math.max(10, Math.min(WD.height * TILE - 10, self.y + wz * sp));
       if (!blocked(nx, self.y)) self.x = nx; if (!blocked(self.x, ny)) self.y = ny;
       monStep();
@@ -2116,12 +2246,12 @@
       const pe = !mv && p.emote && (!EMOTE_ONCE.has(p.emote) || performance.now() - p.emoteSince < 3000) ? p.emote : null;
       p._fx = pe; p._fxt = (performance.now() - (p.emoteSince || 0)) / 1000;
       if (pe === 'sit') view.add(SEAT, p.rx / TILE, 0, p.ry / TILE, 0, 1);
-      view.addCharacter(p.a, cat, p.rx / TILE, p.ry / TILE, 1.05, p.walk, mv, { pump: { speed: 2.4, amp: .022, ph: p.n.length }, emote: pe, et: p._fxt }); list.push(p);
+      drawCarRider({ x: p.rx / TILE, z: p.ry / TILE, psi: p.psi, car: p.car, sp: p.sp, av: p.a, walk: p.walk, moving: mv, st: p._spSt || (p._spSt = {}), dt, scale: 1.05, extra: { pump: { speed: 2.4, amp: .022, ph: p.n.length }, emote: pe, et: p._fxt } }); list.push(p);
     }
     const myFxT = (performance.now() - (self.emoteAt || 0)) / 1000;
     if (self.emote === 'sit') view.add(SEAT, self.x / TILE, 0, self.y / TILE, 0, 1);
-    view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving, { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT });
-    if (me.mon && me.mon.starter && me.mon.party.length && !monBattle && window.MonSprite) {   // your lead Bitmonster walks behind you
+    drawCarRider({ x: self.x / TILE, z: self.y / TILE, psi: self.psi, car: me.car ? { id: me.car, c: (me.carCol || {})[me.car] } : null, sp: me.spouse ? { n: me.spouse.name, l: me.spouse.look } : null, av: me.avatar, walk: self.walk, moving, st: spFol, dt, scale: 1.12, extra: { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT } });
+    if (me.mon && me.mon.starter && me.mon.party.length && !monBattle && !me.car && window.MonSprite) {   // your lead Bitmonster walks behind you
       const lead = me.mon.party.find(m => m.hp > 0) || me.mon.party[0], sx = self.x / TILE, sz = self.y / TILE;
       if (!monFol.on || Math.hypot(monFol.x - sx, monFol.z - sz) > 7) { monFol.x = sx - .8; monFol.z = sz + .4; monFol.on = true; }
       const dx = sx - monFol.x, dz = sz - monFol.z, d = Math.hypot(dx, dz);
@@ -2178,7 +2308,7 @@
       const cys = WD.casino.map(t => t.y), mid = toPage(WD.casino[0].x, 2.3, (Math.min(...cys) + Math.max(...cys)) / 2);
       lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
     }
-    for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
+    for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4], ['🚗 Sunny Motors', WD.carShop, 3.3], ['🍺 Sunny Bar', WD.bar, 3.0]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
     if (monFol.on) { const fp = toPage(monFol.x, .85, monFol.z); tag(monFol.name, fp[0], fp[1] - 2, '#d3f9d8'); }
     if (WALL && MD) {
       for (const c of (WD.centers || [])) { const p = toPage(c.x + c.w / 2, 3.1, c.y + c.h / 2); if (p[0] > -100 && p[0] < vw + 100) tag('🏥 Bitmon Center', p[0], p[1], '#fff3c4'); }
@@ -2229,6 +2359,8 @@
       else if (hoverTile.center) hint = 'Click: Bitmon Center (free healing & Bit Mart)';
       else if (hoverTile.npc) hint = 'Click: talk to ' + hoverTile.npc.name;
       else if (hoverTile.trainer) hint = 'Click: challenge ' + hoverTile.trainer.name;
+      else if (hoverTile.carShop) hint = 'Click: Sunny Motors (buy & drive cars)';
+      else if (hoverTile.bar) hint = 'Click: Sunny Bar (find a wife or husband)';
       else if (hoverTile.orcMarket) hint = 'Click: Orc Market (hire a farm Orc)';
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';
