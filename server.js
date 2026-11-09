@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const C = require('./catalog');
 const Casino = require('./casino');
+const GAME_LABEL = { roulette: 'Roulette', blackjack: 'Blackjack', baccarat: 'Baccarat', slots: 'Super Ace Slots', highlow: 'Higher / Lower' };
+Casino.hooks.bigWin = (u, game, bet, won) => broadcast({ t: 'sys', text: '🎰 BIG WIN! ' + u.name + ' bet $' + Math.round(bet).toLocaleString() + ' on ' + (GAME_LABEL[game] || game) + ' and won $' + Math.round(won).toLocaleString() + '!' });
 const Mon = require('./public/monsters.js');
 const Battle = require('./battle.js');
 

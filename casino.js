@@ -28,12 +28,15 @@ function ensureUser(u) {
   if (u.hl === undefined) u.hl = null;
   if (u.bj && !u.bj.hands) { if (u.bj.status === 'playing') u.money += u.bj.bet; u.bj = null; }   // old single-hand format: refund an unfinished hand
 }
+const BIG_WIN_MIN = 10000;   // a winning round with a stake above this is announced to everyone
+const hooks = {};
 /** Book one finished round: `bets` bets placed, `wagered` staked, `paid` returned (stake included). */
 function record(db, u, game, bets, wagered, paid) {
   ensureDb(db); ensureUser(u);
   const g = db.casino[game], p = u.casino[game], won = paid - wagered;
   g.rounds++; g.bets += bets; g.wagered += wagered; g.paid += paid;
   p.bets += bets; p.wagered += wagered; p.paid += paid;
+  if (won > 0 && wagered > BIG_WIN_MIN && typeof hooks.bigWin === 'function') { try { hooks.bigWin(u, game, wagered, won); } catch (e) { /* ignore */ } }
   if (won > 0) { p.wins++; if (won > p.biggest) p.biggest = won; if (won > g.biggest.amount) g.biggest = { n: u.name, amount: won }; }
 }
 
@@ -426,4 +429,4 @@ function slotSpin(db, u, bet, buy) {
   return { bet, buy: !!buy, cost, paid, net: Math.round((paid - cost) * 100) / 100, base: r.base, free: r.free, freeSpins: r.freeSpins, capped: !!r.capped, mult: r.total };
 }
 
-module.exports = { SL, slRound, slotSpin, MIN_BET, ensureDb, ensureUser, info, rouletteSpin, rouletteColor, bjDeal, bjHit, bjStand, bjDouble, bjSplit, bjView, handValue, baccaratDeal, bacRound, bacPayout, hlStart, hlGuess, hlSkip, hlCashOut, hlView };
+module.exports = { hooks, SL, slRound, slotSpin, MIN_BET, ensureDb, ensureUser, info, rouletteSpin, rouletteColor, bjDeal, bjHit, bjStand, bjDouble, bjSplit, bjView, handValue, baccaratDeal, bacRound, bacPayout, hlStart, hlGuess, hlSkip, hlCashOut, hlView };
