@@ -38,15 +38,12 @@ window.MonUI = function (ctx) {
       g.fillStyle = '#9fd36a'; g.fillRect(0, 0, W, H); g.fillStyle = '#7fbe4f'; for (let i = 0; i < 40; i++) g.fillRect(((i * 97) % M.WORLD_W) * SC, ((i * 53) % 66) * SC, 14, 8);
       g.fillStyle = '#e8d9a8'; g.fillRect(0, 0, 74 * SC, H); g.strokeStyle = '#8d8878'; g.lineWidth = 4; g.strokeRect(2, 2, 74 * SC - 4, H - 4);
       g.fillStyle = '#5c4a2a'; g.font = 'bold 15px sans-serif'; g.fillText('☀ Sunny Lots', 10, 24); g.font = '12px sans-serif'; g.fillText('(farms, shops, casino)', 10, 40);
-      g.fillStyle = '#d9c391'; g.fillRect(74 * SC, 31 * SC, (M.WORLD_W - 74) * SC, 2 * SC);              // champion road
-      g.fillStyle = '#bda772'; for (const k of Object.keys(M.ROUTES)) { const r = M.ROUTES[k]; for (const [gx, gy, gw, gh] of r.grass) { g.fillStyle = '#5aa63a'; g.fillRect(gx * SC, gy * SC, gw * SC, gh * SC); } }
-      g.fillStyle = '#d9c391'; for (let k = 2; k <= 8; k++) g.fillRect((M.routeX0(k) + 10) * SC, 6 * SC, 2 * SC, 52 * SC);
-      g.fillRect(94 * SC, 8 * SC, 2 * SC, 50 * SC);
+      { const T = M.TERRAIN, KC = ['#9fd36a', '#e2cb94', '#5aa63a', '#4a9bd8', '#d8c9a2', '#ecd897', '#9a6b3a'];
+        for (let y = 0; y < T.H; y++) for (let x = 74; x < T.W; x++) { const k = T.kind[y * T.W + x]; g.fillStyle = (k === 0 && T.dec[y * T.W + x] === M.D.TREE) ? '#6fae4d' : KC[k]; g.fillRect(x * SC, y * SC, SC, SC); } }
       g.fillStyle = '#2f6b1f'; g.font = 'bold 13px sans-serif';
       for (let k = 1; k <= 8; k++) { const x = (k === 1 ? 80 : M.routeX0(k) + 2) * SC; g.fillText('Route ' + k, x, 14 * SC + 14); g.font = '11px sans-serif'; g.fillStyle = '#245317'; g.fillText('Lv ' + M.ROUTES['r' + k].levels.join('–'), x, 14 * SC + 28); g.font = 'bold 13px sans-serif'; g.fillStyle = '#2f6b1f'; }
       for (const t of M.TOWNS) {
         const gym = M.GYMS[t.k - 1], got = badges.has(gym.badge);
-        g.fillStyle = '#efe6d2'; g.fillRect(t.x0 * SC, 18 * SC, 16 * SC, 28 * SC); g.strokeStyle = '#8d8878'; g.lineWidth = 2; g.strokeRect(t.x0 * SC, 18 * SC, 16 * SC, 28 * SC);
         g.fillStyle = '#e0585a'; g.fillRect(t.center.x * SC, t.center.y * SC, t.center.w * SC, t.center.h * SC);
         g.fillStyle = gym.col; g.globalAlpha = got ? 1 : .45; g.fillRect(gym.x * SC, gym.y * SC, gym.w * SC, gym.h * SC); g.globalAlpha = 1;
         g.fillStyle = '#222'; g.font = 'bold 12px sans-serif'; g.textAlign = 'center'; g.fillText(t.name, (t.x0 + 8) * SC, 17 * SC);

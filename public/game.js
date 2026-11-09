@@ -508,16 +508,20 @@
     if (x > X1 - T - 2) return !(y > g.y0 * TILE && y < g.y1 * TILE);
     return false;
   };
-  const grassSet = new Set(), pathSet = new Set(), plazaSet = new Set(), grassRoute = {};
-  for (const R of (MD ? Object.values(MD.ROUTES) : [])) for (const [gx, gy, gw, gh] of R.grass) for (let yy = gy; yy < gy + gh; yy++) for (let xx = gx; xx < gx + gw; xx++) { grassSet.add(xx + ',' + yy); grassRoute[xx + ',' + yy] = R.id; }
-  const addRoad = (x0, z0, x1, z1) => { for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) pathSet.add(x + ',' + z); };
-  if (WALL && MD) {
-    addRoad(74, 31, WD.width - 5, 32); addRoad(76, 23, 119, 24); addRoad(76, 44, 119, 45); addRoad(94, 8, 95, 57); addRoad(76, 23, 77, 45);
-    for (let k = 2; k <= 8; k++) { const rs = MD.routeX0(k); addRoad(rs + 10, 3, rs + 11, 57); }
-    for (const t of MD.TOWNS) for (let z = 22; z <= 37; z++) for (let x = t.x0; x < t.x0 + 16; x++) plazaSet.add(x + ',' + z);
-  }
-  const inGrass = (tx, ty) => grassSet.has(tx + ',' + ty);
-  const routeColor = (tx, tz, chk) => pathSet.has(tx + ',' + tz) ? (chk ? '#dcc592' : '#d2ba86') : plazaSet.has(tx + ',' + tz) ? (chk ? '#cdb88f' : '#c3ad84') : grassSet.has(tx + ',' + tz) ? (chk ? '#4d983a' : '#448f33') : (chk ? '#7fc34a' : '#76ba44');
+  // east-of-wall terrain is generated (seeded) in monsters.js so every client/server sees the same land
+  const TR = (MD && MD.TERRAIN) || null, TK = MD ? MD.K : {}, TW = TR ? TR.W : 0;
+  const kindAt = (tx, ty) => (TR && tx >= 74 && ty >= 0 && tx < TW && ty < TR.H) ? TR.kind[ty * TW + tx] : 0;
+  const inGrass = (tx, ty) => kindAt(tx, ty) === TK.GRASS;
+  const GR_COL = [['#7fc34a', '#76ba44', '#85c852', '#6fb340'], ['#dcc592', '#d2ba86'], ['#4d983a', '#448f33', '#559f3f', '#3f8a30'], ['#cdb88f', '#c3ad84', '#d3bf97', '#bba67c']];
+  const routeColor = (tx, tz, chk) => {
+    const i = tz * TW + tx, k = TR.kind[i], tn = TR.tone[i];
+    if (k === TK.PATH) return tn === 0 ? '#c9ae78' : (chk ? '#dcc592' : '#d4bb88');
+    if (k === TK.PLAZA) return tn === 0 ? '#b9a47c' : GR_COL[3][(tn + chk) & 3];
+    if (k === TK.GRASS) return GR_COL[2][(tn + (chk && tn > 1 ? 1 : 0)) & 3];
+    if (k === TK.SAND) return chk ? '#ead38f' : '#e2c984';
+    if (k === TK.BRIDGE) return ((tx + tz) & 1) ? '#b98b52' : '#ad8049';
+    return GR_COL[0][(tn + (chk && tn === 3 ? 0 : 0)) & 3];
+  };
   const unstickWall = () => {
     if (!WALL || !wallHit(self.x, self.y)) return;
     const T = WALL.t * TILE;
@@ -525,6 +529,7 @@
   };
   const solidRects = [WD.bank, WD.orcMarket, ...(WD.centers || []), ...(MD ? MD.GYMS : [])].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
   const blocked = (x, y) => (wallHit(x, y) && !wallHit(self.x, self.y)) || solidRects.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1) || (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
+    || (TR && kindAt(Math.floor(x / TILE), Math.floor(y / TILE)) === TK.WATER)
     || (seaSet.size > 0 && isSea(Math.floor(x / TILE), Math.floor(y / TILE)) && !dockSet.has(Math.floor(x / TILE) + ',' + Math.floor(y / TILE)));
 
   // static scenery (built once from boxes)
@@ -532,7 +537,7 @@
   const piece = (B, x, z, r) => statics.push({ B, x, z, r: r || 1 });
   const SEAT = Vox.mk().add(0, 0, 0, .34, .13, .34, '#a0703c').add(0, .13, 0, .4, .03, .4, '#c99a62');   // little stool under a sitting player
   for (let ty = 0; ty < WD.height; ty++) for (let tx = 0; tx < WD.width; tx++) {
-    if (nearSea(tx, ty) || onWallTile(tx, ty)) continue;
+    if (nearSea(tx, ty) || onWallTile(tx, ty) || (WALL && tx >= 74)) continue;
     if (isMargin(tx, ty) && ((tx * 7 + ty * 13) % 5 === 0)) {
       const v = (tx * 3 + ty) % 3;
       piece(Vox.tree(v), tx + .5 + (((tx * 5 + ty) % 3) - 1) * .12, ty + .5, 1.45 + (v === 1 ? .1 : 0));
@@ -629,12 +634,16 @@
     const actors = (MD ? MD.NPCS.concat(MD.TRAINERS) : []);
     const near = (x, z) => actors.some(a => Math.hypot(a.x - x, a.y - z) < 1.6);
     const blade = (v) => { const B = Vox.mk(); B.add(-.07, 0, 0, .06, .42 + v * .06, .06, '#3f8a2c'); B.add(.07, 0, .05, .06, .5 + v * .04, .06, '#4ea23a'); return B; };
+    const ROCK = (v) => { const B = Vox.mk(); B.add(0, 0, 0, .5 + v * .1, .26, .4 + v * .08, '#8d8a82'); B.add(.04, .2, 0, .34, .16, .28, '#a9a69d'); return B; };
     for (let tz = 0; tz < WD.height; tz++) for (let tx = 74; tx < WD.width; tx++) {
-      const k = tx + ',' + tz, hsh = (tx * 7 + tz * 13 + tx * tz) % 997;
-      if (isMargin(tx, tz) || pathSet.has(k) || plazaSet.has(k)) continue;
-      if (grassSet.has(k)) { if (hsh % 7 === 0 && !near(tx, tz)) piece(blade(hsh % 3), tx + .3 + (hsh % 5) * .1, tz + .3 + (hsh % 4) * .13, .6); }
-      else if (hsh % (tx >= 122 ? 61 : 43) === 0 && !near(tx, tz)) piece(Vox.tree(hsh % 3), tx + .5, tz + .5, 1.5);
-      else if (hsh % (tx >= 122 ? 47 : 19) === 1 && !near(tx, tz)) piece(Vox.wildflower(hsh % 5), tx + .5, tz + .5, .8);
+      const d = TR.dec[tz * TW + tx]; if (!d || near(tx, tz)) continue;
+      const hsh = (tx * 7 + tz * 13 + tx * tz) % 997, jx = ((tx * 5 + tz * 3) % 7) / 10 - .3, jz = ((tx * 3 + tz * 11) % 7) / 10 - .3;
+      if (d === MD.D.TREE) piece(Vox.tree(hsh % 3), tx + .5 + jx * .5, tz + .5 + jz * .5, 1.35 + (hsh % 4) * .08);
+      else if (d === MD.D.FLOWER) piece(Vox.wildflower(hsh % 5), tx + .5 + jx, tz + .5 + jz, .8);
+      else if (d === MD.D.SHRUB) piece(Vox.shrub(hsh % 2), tx + .5 + jx * .4, tz + .5 + jz * .4, 1.0);
+      else if (d === MD.D.BLADE) piece(blade(hsh % 3), tx + .3 + (hsh % 5) * .1, tz + .3 + (hsh % 4) * .13, .6);
+      else if (d === MD.D.ROCK) piece(ROCK(hsh % 3), tx + .5, tz + .5, 1);
+      else if (d === MD.D.TUFT) piece(Vox.tuft(hsh % 4), tx + .3 + (hsh % 5) * .1, tz + .3 + (hsh % 4) * .1, 1.0);
     }
   }
   // Fences + land posts follow each lot's real footprint (base 8x8 plus bought squares).
@@ -765,7 +774,7 @@
       lastGT = k;
       if (inGrass(tx, ty) && performance.now() > encCool) {
         grassSteps++;
-        if (grassSteps >= 3 && Math.random() < 1 / 9) { grassSteps = 0; encCool = performance.now() + 3500; send({ t: 'mon_encounter', route: grassRoute[k] || 'r1' }); }
+        if (grassSteps >= 3 && Math.random() < 1 / 9) { grassSteps = 0; encCool = performance.now() + 3500; send({ t: 'mon_encounter', route: 'r' + (MD.grassRouteAt(tx, ty) || 1) }); }
       }
     }
     const done = beatenSet();
@@ -2011,7 +2020,7 @@
     const x0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.x))) - 1), x1 = Math.min(WD.width - 1, Math.ceil(Math.max(...cs.map(c => c.x))) + 1);
     const z0 = Math.max(0, Math.floor(Math.min(...cs.map(c => c.z))) - 1), z1 = Math.min(WD.height - 1, Math.ceil(Math.max(...cs.map(c => c.z))) + 1);
     for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) {
-      const chk = (tx + tz) & 1; let col;
+      const chk = (tx + tz) & 1; let col, river = false;
       const li = landGrid[tz][tx];
       const houseFloor = li >= 0 && WD.lands[li] && WD.lands[li].house;
       if (isSea(tx, tz)) { const wv = Math.sin(t * 1.3 + tx * .6 + tz * .4) + Math.sin(t * .9 - tx * .35 + tz * .7); col = WATER[Math.max(0, Math.min(4, Math.round((wv + 2))))]; }
@@ -2019,10 +2028,16 @@
       else if (inPark(tx, tz)) col = chk ? '#8fd45a' : '#86cc52';
       else if (houseFloor) col = chk ? '#dcb97c' : '#d2ae70';
       else if (li >= 0) col = chk ? '#86cd4e' : '#7ec548';
+      else if (WALL && tx >= 74) {
+        if (kindAt(tx, tz) === TK.WATER) { const wv = Math.sin(t * 1.3 + tx * .6 + tz * .4) + Math.sin(t * .9 - tx * .35 + tz * .7); col = WATER[Math.max(0, Math.min(4, Math.round(wv + 2)))]; river = true; if (kindAt(tx - 1, tz) !== TK.WATER || kindAt(tx + 1, tz) !== TK.WATER || kindAt(tx, tz - 1) !== TK.WATER || kindAt(tx, tz + 1) !== TK.WATER) col = chk ? '#82d0f2' : '#78c9ee'; }
+        else col = routeColor(tx, tz, chk);
+      }
       else if (isMargin(tx, tz)) col = chk ? '#6fb847' : '#66ae41';
-      else if (WALL && tx >= 74) col = routeColor(tx, tz, chk);
       else col = chk ? '#cdb88f' : '#c3ad84'; // cobble lane
       view.quad(tx, tz, tx + 1, tz + 1, 0.0, col);
+      if (river) {
+        if (((tx * 7 + tz * 13 + Math.floor(t * 1.2)) % 9) === 0) view.quad(tx + .25, tz + .4, tx + .75, tz + .52, 0.006, 'rgba(255,255,255,.5)');
+      }
       if (isSea(tx, tz)) {
         const shore = !seaOrEdge(tx - 1, tz) || !seaOrEdge(tx + 1, tz) || !seaOrEdge(tx, tz - 1) || !seaOrEdge(tx, tz + 1);
         if (shore) view.quad(tx, tz, tx + 1, tz + 1, 0.006, 'rgba(255,255,255,' + (0.26 + 0.14 * Math.sin(t * 2 + tx + tz)).toFixed(2) + ')');   // foam

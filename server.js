@@ -571,7 +571,7 @@ wss.on('connection', ws => {
         if (Date.now() - (c.lastEnc || 0) < 2500) return;
         const route = Mon.ROUTES[m.route]; if (!route) return;
         const tx = c.x / T, ty = c.y / T;
-        if (!route.grass.some(([gx, gy, gw, gh]) => tx > gx - 1 && tx < gx + gw + 1 && ty > gy - 1 && ty < gy + gh + 1)) return;
+        if (Mon.grassRouteAt(Math.floor(tx), Math.floor(ty)) !== Number(String(m.route).slice(1))) return;
         c.lastEnc = Date.now();
         const w = Battle.rollWild(route), r = Battle.startWild(u, w.sp, w.lv);
         if (r.error) return err(r.error);

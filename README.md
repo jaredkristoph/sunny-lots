@@ -92,3 +92,6 @@ Sunny Lots is now a walled hub town. The **east gate** leads to **Route 1** (ope
 - **Natures & stats**: every monster has a random nature (+10% / −10% to two stats, or neutral) and random IVs. The monster page shows a radar chart of its stats.
 - **Legendaries**: 5 shrines at the north end of Routes 4–8 (3 / 4 / 5 / 6 / 8 badges). Each legendary can be caught once per player.
 - **Friendly PvP**: click another player (or use `🟢 online → ⚔ Battle`). They accept or decline; both teams are full-health copies, so nothing is lost. Both players pick a move each turn (45 s auto-move), and wins/losses are tracked.
+
+## Organic world (east of the wall)
+Everything east of Sunny Lots is generated from fixed seeds in `public/monsters.js` (`TERRAIN`), so the server, every client and the map all agree: winding main road, jittered side trails with clearings/shrine plazas, blobby tall-grass meadows (wild encounters only happen on these tiles), ponds, rivers with bridges, sandy shores and natural forests. Static scenery is batched with InstancedMesh in `hd2d.js`.

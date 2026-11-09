@@ -240,7 +240,6 @@
     r1: {
       id: 'r1', name: 'Route 1 · Sunny Fields', levels: [3, 8],
       pool: [[BY_NAME.Pipwing, 20], [BY_NAME.Nibbet, 20], [BY_NAME.Larvix, 14], [BY_NAME.Hoplet, 14], [BY_NAME.Sparkit, 7], [BY_NAME.Budlet, 10], [BY_NAME.Slithe, 8], [BY_NAME.Finlet, 4], [BY_NAME.Pebblin, 3]],
-      grass: [[78, 6, 12, 10], [98, 8, 14, 10], [78, 26, 14, 5], [78, 34, 14, 9], [98, 34, 16, 9], [78, 47, 15, 11], [102, 46, 14, 12]],     // x, y, w, h (tiles)
     },
   };
   const TRAINERS = [
@@ -263,6 +262,120 @@
   const TOWN_X0 = k => 122 + (k - 1) * 38;                 // town k spans x0 .. x0+16
   const routeX0 = k => k === 1 ? 74 : TOWN_X0(k - 1) + 16;  // route k spans routeX0 .. (k === 1 ? 120 : TOWN_X0(k))
   const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+  // ======================================================================
+  // Organic, seeded terrain (identical on server, client, admin): winding roads, side trails,
+  // blobby tall-grass meadows, ponds, rivers with bridges, shorelines and natural forest.
+  // ======================================================================
+  const WORLD_H = 66;
+  const K = { GROUND: 0, PATH: 1, GRASS: 2, WATER: 3, PLAZA: 4, SAND: 5, BRIDGE: 6 };
+  const D = { NONE: 0, TREE: 1, FLOWER: 2, SHRUB: 3, BLADE: 4, ROCK: 5, TUFT: 6 };
+  const h2 = (x, y, s) => { let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1274126177); h = Math.imul(h ^ h >>> 13, 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+  const smooth = t => t * t * (3 - 2 * t);
+  const vnoise = (x, y, s) => { const xi = Math.floor(x), yi = Math.floor(y), fx = smooth(x - xi), fy = smooth(y - yi); const a = h2(xi, yi, s), b = h2(xi + 1, yi, s), c = h2(xi, yi + 1, s), d = h2(xi + 1, yi + 1, s); return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy; };
+  const fbm = (x, y, s) => vnoise(x, y, s) * .55 + vnoise(x * 2.1, y * 2.1, s + 11) * .3 + vnoise(x * 4.3, y * 4.3, s + 23) * .15;
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const zoneDist = x => { let d = Math.abs(x - 74); for (let k = 1; k <= 8; k++) { const x0 = TOWN_X0(k); d = Math.min(d, x < x0 ? x0 - x : x > x0 + 16 ? x - x0 - 16 : 0); } return d; };
+  const roadY = x => clamp(31.5 + smooth(Math.min(1, zoneDist(x) / 7)) * 36 * (fbm(x / 11, 3.7, 101) - .5), 11, 52);
+  const routeOf = x => { for (let k = 1; k <= 8; k++) if (x >= routeX0(k) && x < TOWN_X0(k)) return k; return 0; };
+  const SHRINE_ROUTE = k => k >= 4;
+
+  function buildTerrain() {
+    const W = WORLD_W, H = WORLD_H, N = W * H, I = (x, y) => y * W + x;
+    const path = new Uint8Array(N), plaza = new Uint8Array(N), water = new Uint8Array(N), kind = new Uint8Array(N), route = new Uint8Array(N), tone = new Uint8Array(N), dec = new Uint8Array(N);
+    const stamp = (m, cx, cy, r) => { for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(H - 1, Math.ceil(cy + r)); y++) for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(W - 1, Math.ceil(cx + r)); x++) { const dx = x + .5 - cx, dy = y + .5 - cy; if (dx * dx + dy * dy <= r * r) m[I(x, y)] = 1; } };
+    // main road
+    for (let x = 74; x <= W - 5; x += .5) stamp(path, x, roadY(x), 1.15 + vnoise(x / 6, 0, 55) * .55);
+    // side trails (jittered polylines) with a small clearing at the end
+    const trails = {};
+    const trail = (key, bx, ex, ey, seed, clearR, stone) => {
+      const by = roadY(bx), len = Math.hypot(ex - bx, ey - by), n = Math.ceil(len * 1.6), pts = [];
+      const nx = -(ey - by) / len, ny = (ex - bx) / len, amp = Math.min(6, len * .22);
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, wob = (fbm(t * 3.1 + seed * 5, seed, 77) - .5) * 2.4 * amp * Math.sin(Math.PI * t) * 1.5;
+        const x = bx + (ex - bx) * t + nx * wob, y = by + (ey - by) * t + ny * wob;
+        stamp(path, x, y, .95 + vnoise(t * 9, seed, 9) * .35); pts.push([x, y]);
+      }
+      stamp(stone ? plaza : path, ex, ey, clearR);
+      trails[key] = pts;
+    };
+    trail('1n1', 84, 80, 14, 1, 2.2); trail('1n2', 104, 112, 13, 2, 2.2); trail('1s1', 90, 86, 52, 3, 2.2); trail('1s2', 108, 104, 54, 4, 2.2);
+    for (let k = 2; k <= 8; k++) {
+      const rs = routeX0(k);
+      if (SHRINE_ROUTE(k)) trail(k + 'n', rs + 8, rs + 11, 6.2, k, 3.4, true); else trail(k + 'n', rs + 8, rs + 9 + k % 3, 12 + k, k, 2.2);
+      trail(k + 's', rs + 14, rs + 8 + k % 4, 51 + k % 3, k + 20, 2.2);
+    }
+    // town plazas: organic blobs that always cover the buildings
+    for (let k = 1; k <= 8; k++) {
+      const x0 = TOWN_X0(k), cx = x0 + 8, cy = 31;
+      for (let y = 14; y < 48; y++) for (let x = x0 - 4; x < x0 + 20; x++) {
+        const dx = (x + .5 - cx) / 10.8, dy = (y + .5 - cy) / 9.4, f = dx * dx + dy * dy + (fbm(x / 3, y / 3, 500 + k) - .5) * 1.1;
+        const inB = (x >= x0 && x <= x0 + 7 && y >= 23 && y <= 30) || (x >= x0 + 7 && x <= x0 + 16 && y >= 22 && y <= 30);
+        if (f < 1 || inB) plaza[I(x, y)] = 1;
+      }
+    }
+    // water: rivers on routes 1-3, ponds everywhere
+    const nearPath = (x, y, r) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const a = x + dx, b = y + dy; if (a >= 0 && b >= 0 && a < W && b < H && (path[I(a, b)] || plaza[I(a, b)])) return true; } return false; };
+    const rivers = [[1, 100], [2, routeX0(2) + 11], [3, routeX0(3) + 11]];
+    for (const [k, cx] of rivers) for (let y = 0; y < H; y++) {
+      const xr = cx + Math.sin(y * .13 + k * 1.7) * 3.2 + (fbm(y / 6, k, 400) - .5) * 7, w = 1.3 + vnoise(y / 5, k, 401) * 1.1;
+      for (let x = Math.floor(xr - w - 1); x <= Math.ceil(xr + w + 1); x++) if (x >= 74 && x < W && Math.abs(x + .5 - xr) < w && zoneDist(x) > 3 && !plaza[I(x, y)]) water[I(x, y)] = 1;
+    }
+    for (let y = 5; y < H - 5; y++) for (let x = 74; x < W - 6; x++) {
+      const k = routeOf(x); if (!k || zoneDist(x) < 4 || plaza[I(x, y)]) continue;
+      if (fbm(x / 6.5, y / 6.5, 300 + k) > .685 && Math.abs(y + .5 - roadY(x)) > 4.5 && !nearPath(x, y, 2)) water[I(x, y)] = 1;
+    }
+    // classify
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = I(x, y); let c = K.GROUND;
+      if (x >= 74) {
+        const k = routeOf(x);
+        if (plaza[i]) c = K.PLAZA;
+        else if (path[i]) c = water[i] ? K.BRIDGE : K.PATH;
+        else if (water[i]) c = K.WATER;
+        else if (k && y >= 5 && y < H - 5 && zoneDist(x) >= 3 && x < W - 6) {
+          const d = Math.abs(y + .5 - roadY(x)), v = fbm(x / 5.2, y / 5.2, 200 + k) + (d < 10 ? .05 : 0) - (d > 21 ? .09 : 0);
+          if (v > .565 && d > 2.2) { c = K.GRASS; route[i] = k; }
+        }
+      }
+      kind[i] = c;
+    }
+    for (let y = 0; y < H; y++) for (let x = 74; x < W; x++) {
+      const i = I(x, y); if (kind[i] !== K.GROUND && kind[i] !== K.GRASS) continue;
+      if ((x > 0 && kind[i - 1] === K.WATER) || (x < W - 1 && kind[i + 1] === K.WATER) || (y > 0 && kind[i - W] === K.WATER) || (y < H - 1 && kind[i + W] === K.WATER)) { kind[i] = K.SAND; route[i] = 0; }
+    }
+    // tone (soft colour variation) + decor
+    const open = (x, y) => { const c = kind[I(clamp(x, 0, W - 1), clamp(y, 0, H - 1))]; return c === K.PATH || c === K.PLAZA || c === K.BRIDGE; };
+    for (let y = 0; y < H; y++) for (let x = 74; x < W; x++) {
+      const i = I(x, y), c = kind[i];
+      tone[i] = clamp(Math.floor((fbm(x / 3.3, y / 3.3, 600) - .36) / .075), 0, 3);
+      if (c === K.PATH || c === K.PLAZA) { if (!open(x - 1, y) || !open(x + 1, y) || !open(x, y - 1) || !open(x, y + 1)) tone[i] = 0; }
+      if (c === K.WATER || c === K.PATH || c === K.PLAZA || c === K.BRIDGE) continue;
+      const edgeD = Math.min(y, H - 1 - y, W - 1 - x), margin = edgeD < 2, forest = clamp(1 - (edgeD - 2) / 11, 0, 1);
+      const nz = fbm(x / 6, y / 6, 700), r1 = h2(x, y, 800), r2 = h2(x, y, 801);
+      let nearOpen = false; for (let dy = -1; dy <= 1 && !nearOpen; dy++) for (let dx = -1; dx <= 1; dx++) if (open(x + dx, y + dy)) { nearOpen = true; break; }
+      const inTown = (() => { const k = Math.floor((x - 122 + 38) / 38) + 0; for (let t = 1; t <= 8; t++) { const x0 = TOWN_X0(t); if (x >= x0 - 2 && x <= x0 + 18) return true; } return false; })();
+      if (c === K.GRASS) { if (r1 < .16) dec[i] = D.BLADE; continue; }
+      if (c === K.SAND) { if (r1 < .06) dec[i] = D.TUFT; continue; }
+      let tp = margin ? .72 : (.012 + forest * (nz > .5 ? .12 + (nz - .5) * 1.4 : .03) + (nz > .64 ? .2 : 0)) * (inTown ? .35 : 1);
+      if (nearOpen && !margin) tp = 0;
+      if (r1 < tp) dec[i] = D.TREE;
+      else if (fbm(x / 4, y / 4, 702) > .6 && r2 < .3) dec[i] = D.FLOWER;
+      else if (r2 > (forest > .4 ? .9 : .965)) dec[i] = D.SHRUB;
+      else if (r2 < .012 + (routeOf(x) >= 5 ? .02 : 0)) dec[i] = D.ROCK;
+      else if (r2 > .5 && r2 < .56) dec[i] = D.TUFT;
+    }
+    return { W, H, kind, route, tone, dec, trails };
+  }
+  const TERRAIN = buildTerrain();
+  const trailAt = (key, t) => { const a = TERRAIN.trails[key], p = a[Math.min(a.length - 1, Math.floor(t * (a.length - 1)))]; return { x: Math.round(p[0]) + .5, y: Math.round(p[1]) + .5 }; };
+  const isGrassTile = (x, y) => x >= 0 && y >= 0 && x < WORLD_W && y < WORLD_H && TERRAIN.kind[y * WORLD_W + x] === K.GRASS;
+  const grassRouteAt = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const a = x + dx, b = y + dy; if (isGrassTile(a, b)) return TERRAIN.route[b * WORLD_W + a]; } return 0; };
+  // relocate the hand-placed route 1 folk onto the generated paths
+  { const mv = (id, x, y) => { const o = NPCS.concat(TRAINERS).find(a => a.id === id); if (o) { o.x = x; o.y = y; } };
+    mv('n_guide', 76.5, Math.floor(roadY(76.5) - 2.2) + .5); mv('n_kid', 93.5, Math.floor(roadY(93.5) + 2.3) + .5); mv('n_old', 112.5, Math.floor(roadY(112.5) - 2.3) + .5);
+    const a = trailAt('1n1', .62), b = trailAt('1n2', .62), c = trailAt('1s1', .62), d = trailAt('1s2', .62);
+    mv('t_tim', a.x, a.y); mv('t_ana', b.x, b.y); mv('t_bo', c.x, c.y); mv('t_mia', d.x, d.y); }
   const normal = SPECIES.slice(1).filter(x => !x.legend && !x.rare && !x.starter).sort((a, b) => a.bst - b.bst || a.id - b.id);
   const LV = k => k === 1 ? [3, 8] : [6 * k - 4, 6 * k + 2];
   const ROUTE_NAMES = ['Sunny Fields', 'Dewdrop Trail', 'Mosswater Run', 'Stormcloud Pass', 'Emberdust Road', 'Boulder Ridge', 'Mistveil Moor', 'Skyreach Way'];
@@ -273,7 +386,6 @@
     const rs = routeX0(k);
     ROUTES['r' + k] = {
       id: 'r' + k, name: 'Route ' + k + ' · ' + ROUTE_NAMES[k - 1], levels: LV(k), pool,
-      grass: [[rs + 1, 20, 9, 9], [rs + 12, 20, 9, 9], [rs + 1, 34, 9, 9], [rs + 12, 34, 9, 9], [rs + 1, 8, 9, 9], [rs + 12, 46, 9, 9]],
     };
   }
   ROUTES.r1.name = 'Route 1 · ' + ROUTE_NAMES[0];
@@ -285,7 +397,7 @@
   const rngT = mulberry(7);
   for (let k = 2; k <= 8; k++) {
     const rs = routeX0(k), R = ROUTES['r' + k], [lo, hi] = R.levels;
-    [[rs + 4, 31], [rs + 16, 32], [rs + 10.5, 14]].forEach(([x, y], i) => {
+    [[rs + 4.5, Math.floor(roadY(rs + 4.5)) + .5], [rs + 16.5, Math.floor(roadY(rs + 16.5)) + .5], (({ x, y }) => [x, y])(trailAt(k + 'n', .55))].forEach(([x, y], i) => {
       const n = 2 + (i === 2 ? 1 : 0) + (k >= 5 && i === 0 ? 1 : 0), team = [];
       for (let m = 0; m < n; m++) { const pick = R.pool[Math.floor(rngT() * R.pool.length)][0]; team.push([pick, Math.min(hi, lo + 1 + Math.floor(rngT() * (hi - lo)) + (m === n - 1 ? 1 : 0))]); }
       const avg = team.reduce((a, b) => a + b[1], 0) / n;
@@ -346,12 +458,12 @@
     ['This is the last stretch. Zenith City is just ahead.', 'You made it this far? You are a true trainer.'],
   ];
   TOWNS.forEach((t, i) => { NPCS.push({ id: 'n_town' + t.k, name: 'Resident ' + t.name.split(' ')[0], x: t.x0 + 6, y: 34, look: (i * 3 + 2) % 10, lines: TALK[i] }); });
-  for (let k = 2; k <= 8; k++) NPCS.push({ id: 'n_rt' + k, name: 'Wanderer ' + ['Ivy', 'Rowan', 'Sage', 'Ash', 'Clay', 'Haze', 'Wren'][k - 2], x: routeX0(k) + 7, y: 33, look: (k * 2 + 1) % 10, lines: ROUTE_TALK[k - 1] });
+  for (let k = 2; k <= 8; k++) NPCS.push({ id: 'n_rt' + k, name: 'Wanderer ' + ['Ivy', 'Rowan', 'Sage', 'Ash', 'Clay', 'Haze', 'Wren'][k - 2], x: routeX0(k) + 7.5, y: Math.floor(roadY(routeX0(k) + 7.5) + 2.3) + .5, look: (k * 2 + 1) % 10, lines: ROUTE_TALK[k - 1] });
   // legendary shrines (dead-end roads at the far north of routes 4-8)
   const LEGENDS = [
     { sp: BY_NAME.Solarex, route: 4, badges: 3, lv: 35 }, { sp: BY_NAME.Aquarion, route: 5, badges: 4, lv: 40 },
     { sp: BY_NAME.Terraknox, route: 6, badges: 5, lv: 45 }, { sp: BY_NAME.Voltarch, route: 7, badges: 6, lv: 50 }, { sp: BY_NAME.Omnimind, route: 8, badges: 8, lv: 60 },
   ].map(L => Object.assign(L, { x: routeX0(L.route) + 11, y: 4 }));
-  const API = { TYPES, TYPE_COL, CHART, typeMult, MOVES, MOVE_LIST, SPECIES, BY_NAME, COUNT, STATS, movesAt, calcStats, NATURES, xpFor, MAX_LV, baseExp, ORBS, orbMult, POTIONS, SHOP, DAILY, ROUTES, TRAINERS, NPCS, FAMILIES, WORLD_W, TOWNS, GYMS, CENTERS, LEGENDS, routeX0, TOWN_X0 };
+  const API = { TYPES, TYPE_COL, CHART, typeMult, MOVES, MOVE_LIST, SPECIES, BY_NAME, COUNT, STATS, movesAt, calcStats, NATURES, xpFor, MAX_LV, baseExp, ORBS, orbMult, POTIONS, SHOP, DAILY, ROUTES, TRAINERS, NPCS, FAMILIES, WORLD_W, TOWNS, GYMS, CENTERS, LEGENDS, routeX0, TOWN_X0, TERRAIN, K, D, roadY, grassRouteAt, isGrassTile };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.Mon = API;
 })(typeof window !== 'undefined' ? window : globalThis);

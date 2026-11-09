@@ -676,37 +676,47 @@ class View {
 
   /** Bake unchanging scenery once (shop, fences, trees) — big FPS win. */
   bakeStatic(pieces) {
+    // Static scenery is batched: one InstancedMesh per (24-tile chunk, material), so thousands of boxes cost a few hundred draw calls
     while (this.staticRoot.children.length) {
       const c = this.staticRoot.children[0];
       this.staticRoot.remove(c);
+      if (c.dispose) c.dispose();
     }
-    const geo = this._geo;
+    const buckets = new Map(), shadows = new Map();
+    const CH = 24;
     for (const p of pieces || []) {
       if (!p.B) continue;
-      const psi = 0, cs = 1, sn = 0;
+      const ck = Math.floor(p.x / CH);
       let mnx = 1e9, mxx = -1e9, mnz = 1e9, mxz = -1e9, top = 0;
       for (const b of p.B) {
         if (!b || b.w <= 0 || b.h <= 0 || b.d <= 0) continue;
-        const lx = b.x, lz = b.z, ly = b.y + b.h / 2;
-        const wx = p.x + lx * cs + lz * sn;
-        const wz = p.z - lx * sn + lz * cs;
-        const wy = ly;
-        const mesh = new THREE.Mesh(geo, this._mat(b.c, b.a));
-        mesh.position.set(wx, wy, wz);
-        mesh.scale.set(b.w, b.h, b.d);
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-        this.staticRoot.add(mesh);
+        const wx = p.x + b.x, wz = p.z + b.z, wy = b.y + b.h / 2;
+        const mk = ck + '|' + (b.c || '#ccc') + ':' + (b.a == null ? 1 : b.a);
+        let bk = buckets.get(mk); if (!bk) { bk = { mat: this._mat(b.c, b.a), items: [] }; buckets.set(mk, bk); }
+        bk.items.push(wx, wy, wz, b.w, b.h, b.d);
         if (b.a == null || b.a > 0.75) {
           mnx = Math.min(mnx, wx - b.w / 2); mxx = Math.max(mxx, wx + b.w / 2);
           mnz = Math.min(mnz, wz - b.d / 2); mxz = Math.max(mxz, wz + b.d / 2);
           top = Math.max(top, b.y + b.h);
         }
       }
-      // one cast shadow per object (not per box), so stacked parts never double-darken.
-      // Multi-tile buildings opt out per tile (noShadow) and supply a single shadowBox for the whole building.
-      if (p.shadowBox) { const sb = p.shadowBox; this._bakeCastShadow(this.staticRoot, sb.x0, sb.x1, sb.z0, sb.z1, sb.h); }
-      else if (!p.noShadow && top > 0.45 && mxx > mnx) this._bakeCastShadow(this.staticRoot, mnx, mxx, mnz, mxz, top);
+      let S = null;
+      if (p.shadowBox) { const sb = p.shadowBox; S = this._shadowShape(sb.x0, sb.x1, sb.z0, sb.z1, sb.h); }
+      else if (!p.noShadow && top > 0.45 && mxx > mnx) S = this._shadowShape(mnx, mxx, mnz, mxz, top);
+      if (S) { let l = shadows.get(ck); if (!l) { l = []; shadows.set(ck, l); } l.push(S); }
+    }
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3(), eu = new THREE.Euler(0, 0, 0, 'YXZ');
+    for (const bk of buckets.values()) {
+      const n = bk.items.length / 6, im = new THREE.InstancedMesh(this._geo, bk.mat, n);
+      for (let i = 0; i < n; i++) { const o = i * 6; pos.set(bk.items[o], bk.items[o + 1], bk.items[o + 2]); sc.set(bk.items[o + 3], bk.items[o + 4], bk.items[o + 5]); m4.compose(pos, q.identity(), sc); im.setMatrixAt(i, m4); }
+      im.instanceMatrix.needsUpdate = true; im.castShadow = false; im.receiveShadow = false; im.computeBoundingSphere();
+      this.staticRoot.add(im);
+    }
+    for (const list of shadows.values()) {
+      const im = new THREE.InstancedMesh(this._quadGeo, this._shadowMat, list.length);
+      list.forEach((S, i) => { eu.set(-Math.PI / 2, S.rot, 0); q.setFromEuler(eu); pos.set(S.x, 0.007, S.z); sc.set(S.sx, S.sz, 1); m4.compose(pos, q, sc); im.setMatrixAt(i, m4); });
+      im.instanceMatrix.needsUpdate = true; im.renderOrder = 1; im.computeBoundingSphere();
+      this.staticRoot.add(im);
     }
   }
 
