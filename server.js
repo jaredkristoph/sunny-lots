@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const C = require('./catalog');
 const Casino = require('./casino');
+const Mon = require('./public/monsters.js');
+const Battle = require('./battle.js');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -78,6 +80,7 @@ function relOwned(L, tx, ty) {
 }
 function ensureUser(u) {
   Casino.ensureUser(u);
+  Battle.ensureMon(u);
   if (!u.animals) u.animals = { chicken: 0, cow: 0, sheep: 0 };
   if (!u.products) u.products = {};
   if (!u.pets) u.pets = [];
@@ -323,7 +326,18 @@ let playersDirty = true;
 
 const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
 const broadcast = o => { const s = JSON.stringify(o); for (const c of online.values()) if (c.ws.readyState === 1) c.ws.send(s); };
+const utcDay = () => Math.floor(Date.now() / 864e5);
+const monState = u => {
+  const m = u.mon, day = utcDay(), claimed = m.daily.last === day;
+  const nextStreak = claimed ? m.daily.streak : (m.daily.last === day - 1 ? m.daily.streak + 1 : 1);
+  return {
+    starter: m.starter, party: m.party.map(x => Battle.monView(x, true)), boxCount: m.box.length, items: m.items,
+    dex: { seen: Object.keys(m.dex.seen).length, caught: Object.keys(m.dex.caught).length, caughtIds: Object.keys(m.dex.caught).map(Number), seenIds: Object.keys(m.dex.seen).map(Number) },
+    daily: { claimed, streak: m.daily.streak, idx: (Math.max(1, nextStreak) - 1) % 7, nextStreak }, badges: m.badges, beaten: Object.keys(m.beaten), inBattle: !!u.battle,
+  };
+};
 const meView = u => ({
+  mon: monState(u),
   name: u.name, money: u.money, seeds: u.seeds, crops: u.crops, furniture: u.furniture,
   clothes: u.clothes, avatar: u.avatar, land: u.land, expandLand: u.expandLand, houseLand: u.houseLand, charDone: u.charDone,
   animals: u.animals, products: u.products, pets: u.pets,
@@ -459,7 +473,7 @@ wss.on('connection', ws => {
       c = { ws, u, key, x: p.x, y: p.y };
       online.set(key, c);
       send(ws, {
-        t: 'init', me: meView(u), pos: p, now: Date.now(), speed: SPEED,
+        t: 'init', me: meView(u), mb: u.battle ? Battle.view(u) : null, pos: p, now: Date.now(), speed: SPEED,
         lands: db.lands.map(landView), players: playerList(), chat: chatLog.slice(-30),
       });
       broadcast({ t: 'sys', text: u.name + ' joined the neighborhood.' });
@@ -488,6 +502,108 @@ wss.on('connection', ws => {
         c.x = nx; c.y = ny;
         playersDirty = true;
         break;
+      }
+      case 'mon_starter': {
+        const mo = u.mon;
+        if (mo.starter) return err('You already chose a starter.');
+        const starters = Mon.FAMILIES.filter(f => f[6] && f[6].starter).map(f => Mon.BY_NAME[f[5][0]]);
+        const spId = Number(m.sp);
+        if (!starters.includes(spId)) return err('Pick one of the three starters.');
+        const st = Battle.makeMon(spId, 5);
+        mo.starter = spId; mo.party.push(st); mo.dex.caught[spId] = 1; mo.dex.seen[spId] = 1;
+        for (const sid of starters) mo.dex.seen[sid] = 1;
+        mo.items.orb = (mo.items.orb || 0) + 5; mo.items.potion = (mo.items.potion || 0) + 3;
+        touch(); sendMe(c); ok('You chose ' + Mon.SPECIES[spId].name + '! Your adventure begins.');
+        break;
+      }
+      case 'mon_daily': {
+        const mo = u.mon, day = utcDay();
+        if (!mo.starter) return err('Choose your starter first.');
+        if (mo.daily.last === day) return err('You already claimed today\'s reward.');
+        const streak = mo.daily.last === day - 1 ? mo.daily.streak + 1 : 1, R = Mon.DAILY[(streak - 1) % 7];
+        if (R.money) u.money = roundMoney(u.money + R.money);
+        for (const [k, n] of Object.entries(R.items || {})) mo.items[k] = (mo.items[k] || 0) + n;
+        let got = null;
+        if (R.monster) { got = Battle.makeMon(R.monster, R.level || 10); if (mo.party.length < Battle.PARTY_MAX) mo.party.push(got); else mo.box.push(got); mo.dex.caught[R.monster] = 1; mo.dex.seen[R.monster] = 1; }
+        mo.daily.last = day; mo.daily.streak = streak;
+        touch(); sendMe(c);
+        send(ws, { t: 'mon_daily_ok', day: (streak - 1) % 7, monster: got ? Mon.SPECIES[got.sp].name : null });
+        break;
+      }
+      case 'mon_encounter': {
+        const mo = u.mon;
+        if (u.battle || !mo.starter) return;
+        if (Date.now() - (c.lastEnc || 0) < 2500) return;
+        const route = Mon.ROUTES[m.route]; if (!route) return;
+        const tx = c.x / T, ty = c.y / T;
+        if (!route.grass.some(([gx, gy, gw, gh]) => tx > gx - 1 && tx < gx + gw + 1 && ty > gy - 1 && ty < gy + gh + 1)) return;
+        c.lastEnc = Date.now();
+        const w = Battle.rollWild(route), r = Battle.startWild(u, w.sp, w.lv);
+        if (r.error) return err(r.error);
+        touch(); sendMe(c); send(ws, { t: 'mb_start', events: r.events, view: Battle.view(u) });
+        break;
+      }
+      case 'mon_trainer': {
+        const tr = Mon.TRAINERS.find(x => x.id === m.id); if (!tr || u.battle || !u.mon.starter) return;
+        if (Math.hypot(c.x / T - tr.x, c.y / T - tr.y) > 9) return err('Walk closer to challenge them.');
+        const r = Battle.startTrainer(u, tr);
+        if (r.error) return err(r.error);
+        c.lastEnc = Date.now(); touch(); sendMe(c); send(ws, { t: 'mb_start', events: r.events, view: Battle.view(u) });
+        break;
+      }
+      case 'mb_act': {
+        if (Date.now() - (c.lastMb || 0) < 150) return;
+        c.lastMb = Date.now();
+        const r = Battle.act(db, u, { a: m.a, i: m.i, item: m.item });
+        if (r.error) return send(ws, { t: 'mb_err', msg: r.error });
+        touch(); sendMe(c);
+        if (r.ended) { return send(ws, { t: 'mb_closed' }); }
+        send(ws, { t: 'mb_turn', events: r.events, view: Battle.view(u) });
+        break;
+      }
+      case 'mb_resume': { if (u.battle) send(ws, { t: 'mb_start', events: [{ k: 'msg', text: 'Back in the battle!' }], view: Battle.view(u) }); break; }
+      case 'mon_heal': case 'mon_buy': {
+        if (u.battle) return err('Finish your battle first.');
+        const ctr = C.WORLD.center;
+        if (!ctr || Math.hypot(c.x / T - (ctr.x + ctr.w / 2), c.y / T - (ctr.y + ctr.h / 2)) > 9) return err('Go to the Bitmon Center first.');
+        if (m.t === 'mon_heal') { Battle.healAll(u); touch(); sendMe(c); ok('Your monsters are fully healed!'); break; }
+        const id = m.item, n = Math.max(1, Math.min(99, Math.floor(Number(m.n) || 1)));
+        const it = Mon.ORBS[id] || Mon.POTIONS[id];
+        if (!it || !Mon.SHOP.includes(id)) return err('That is not for sale.');
+        const cost = it.price * n;
+        if (u.money < cost) return err('Not enough money.');
+        u.money = roundMoney(u.money - cost); u.mon.items[id] = (u.mon.items[id] || 0) + n;
+        touch(); sendMe(c); ok('Bought ' + n + '× ' + it.name + '.');
+        break;
+      }
+      case 'mon_use': {   // potions outside battle
+        const mo = u.mon; if (u.battle) return err('Not during a battle.');
+        const it = Mon.POTIONS[m.item];
+        if (!it || !(mo.items[m.item] > 0)) return err('You do not have that item.');
+        const tgt = mo.party[m.i | 0]; if (!tgt) return err('Pick a monster.');
+        if (it.revive) { if (tgt.hp > 0) return err('That monster has not fainted.'); tgt.hp = Math.max(1, Math.floor(Battle.maxHp(tgt) * it.revive)); }
+        else if (tgt.hp <= 0) return err('That monster has fainted.');
+        else if (it.heal) { if (tgt.hp >= Battle.maxHp(tgt)) return err('HP is already full.'); tgt.hp = Math.min(Battle.maxHp(tgt), tgt.hp + it.heal); }
+        else if (it.cure) { if (!tgt.status) return err('No status to cure.'); tgt.status = null; }
+        else if (it.pp) { for (const mm of tgt.moves) mm.pp = Math.min(Mon.MOVES[mm.id].pp, mm.pp + it.pp); }
+        mo.items[m.item]--; if (!mo.items[m.item]) delete mo.items[m.item];
+        touch(); sendMe(c); break;
+      }
+      case 'mon_box': { send(ws, { t: 'mon_box', box: u.mon.box.map(x => Battle.monView(x, true)) }); break; }
+      case 'mon_move': {   // deposit / withdraw / lead
+        const mo = u.mon; if (u.battle) return err('Not during a battle.');
+        const pi = mo.party.findIndex(x => x.id === m.id), bi = mo.box.findIndex(x => x.id === m.id);
+        if (m.to === 'box' && pi >= 0) { if (mo.party.length <= 1) return err('Keep at least one monster in your party.'); mo.box.push(mo.party.splice(pi, 1)[0]); }
+        else if (m.to === 'party' && bi >= 0) { if (mo.party.length >= Battle.PARTY_MAX) return err('Your party is full.'); mo.party.push(mo.box.splice(bi, 1)[0]); }
+        else if (m.to === 'lead' && pi > 0) { const x = mo.party.splice(pi, 1)[0]; mo.party.unshift(x); }
+        else return;
+        touch(); sendMe(c); send(ws, { t: 'mon_box', box: mo.box.map(x => Battle.monView(x, true)) });
+        break;
+      }
+      case 'mon_nick': {
+        const x = u.mon.party.concat(u.mon.box).find(y => y.id === m.id); if (!x) return;
+        const nm = String(m.name || '').replace(/[^\p{L}\p{N} '_.!-]/gu, '').trim().slice(0, 12);
+        x.nick = nm || null; touch(); sendMe(c); break;
       }
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);

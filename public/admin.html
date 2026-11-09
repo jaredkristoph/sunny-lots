@@ -30,6 +30,8 @@ tr.u:hover{background:var(--bg);cursor:pointer}.dot{display:inline-block;width:8
 <div style="margin-top:10px"><button id="go">Sign in</button></div><div class="msg neg" id="lmsg"></div></div>
 <div id="app" hidden>
 <div class="row" style="align-items:center"><h1 style="flex:3">🌻 Sunny Lots Admin</h1><div style="flex:1;text-align:right"><button class="ghost" id="refresh">Refresh</button> <button class="ghost" id="out">Sign out</button></div></div>
+<div class="row" style="margin-bottom:12px;gap:8px"><button id="tab-main">📊 Dashboard</button><button class="ghost" id="tab-mon">🐾 Bitmonsters</button></div>
+<div id="pg-main">
 <div class="card"><div class="stats" id="stats"></div></div>
 <div class="card"><h2>Players</h2><input id="q" placeholder="Search a player…" style="margin-bottom:10px">
 <div class="scroll"><table id="tbl"><thead><tr><th data-k="name">Player</th><th data-k="cash">Cash</th><th data-k="savings">Bank savings</th><th data-k="loan">Loan owed</th><th data-k="networth">Net worth</th><th data-k="casinoNet">Casino P/L</th><th data-k="unread">Unread mail</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -41,7 +43,16 @@ tr.u:hover{background:var(--bg);cursor:pointer}.dot{display:inline-block;width:8
 <div><label class="mut">Message</label><textarea id="body" maxlength="1000" placeholder="Write the letter…"></textarea></div>
 <div style="margin-top:10px"><button id="send">Send mail</button></div><div class="msg" id="smsg"></div></div>
 <div class="card"><h2>Recently sent</h2><div class="scroll"><table id="sent"><thead><tr><th>When</th><th>To</th><th>Subject</th><th>Money</th></tr></thead><tbody></tbody></table></div></div>
+</div>
+</div>
+<div id="pg-mon" hidden>
+<div class="card"><h2>🐾 Bitmonsters <span class="mut" id="mon-count"></span></h2>
+<div class="row" style="margin-bottom:10px"><input id="mq" placeholder="Search name, #, move…"><select id="mt"><option value="">All types</option></select><select id="mf"><option value="">All kinds</option><option value="starter">Starters</option><option value="rare">Rare</option><option value="legend">Legendary</option><option value="wild">Found on Route 1</option></select></div>
+<div class="scroll"><table id="mtbl"><thead><tr><th data-mk="id">#</th><th></th><th data-mk="name">Name</th><th data-mk="types">Type</th><th data-mk="hp">HP</th><th data-mk="atk">ATK</th><th data-mk="def">DEF</th><th data-mk="spa">SP.A</th><th data-mk="sdf">SP.D</th><th data-mk="spe">SPD</th><th data-mk="bst">BST</th><th data-mk="evo">Evolves</th><th data-mk="catch">Catch</th></tr></thead><tbody></tbody></table></div>
+<div class="mut" style="margin-top:8px;font-size:12px">Click a row for the full move list (level learned, power, accuracy, PP, effects), evolution line and where it is found. Catch rate: higher = easier (255 max).</div></div>
+</div>
 </div></div>
+<script src="monsters.js"></script><script src="monsprite.js"></script>
 <script>
 const $=s=>document.querySelector(s),fmt=n=>'$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
 let tok=null;try{tok=sessionStorage.getItem('sl_admin')}catch{}
@@ -65,6 +76,48 @@ $('#send').onclick=async()=>{const m=$('#smsg');m.className='msg';m.textContent=
  if(!$('#subj').value.trim()){m.className='msg neg';m.textContent='Add a subject.';return}
  if(to==='all'&&money>0&&!confirm('Send '+fmt(money)+' to EVERY player ('+users.length+')? Total '+fmt(money*users.length)))return;
  $('#send').disabled=true;try{const j=await api('/api/admin/mail',{method:'POST',body:JSON.stringify({to,subject:$('#subj').value,body:$('#body').value,money})});m.className='msg pos';m.textContent='Sent to '+j.sent+' player(s).';$('#subj').value='';$('#body').value='';$('#money').value=0;load()}catch(e){m.className='msg neg';m.textContent=e.message}$('#send').disabled=false};
+
+// ---------- Bitmonsters tab ----------
+(function(){
+ const M=window.Mon,S=window.MonSprite;if(!M)return;
+ const sc=['hp','atk','def','spa','sdf','spe'];let msort={k:'id',d:1},open=null;
+ const chip=t=>`<span style="display:inline-block;padding:1px 7px;border-radius:9px;color:#fff;font-size:11px;font-weight:800;margin-right:3px;background:${M.TYPE_COL[t]}">${t}</span>`;
+ const wild=new Map();M.ROUTES.r1.pool.forEach(([id,w])=>wild.set(id,w));const tot=[...wild.values()].reduce((a,b)=>a+b,0);
+ $('#mt').innerHTML+=M.TYPES.map(t=>`<option>${t}</option>`).join('');
+ const fxText=m=>{const f=m.fx||{},o=[];if(m.cat==='st'&&!Object.keys(f).length)o.push('—');
+  const sn=x=>Object.entries(x).map(([k,v])=>k.toUpperCase()+(v>0?' +':' ')+v).join(', ');
+  if(f.st)o.push((f.ch?f.ch+'% ':'')+({brn:'burn',psn:'poison',par:'paralyze',slp:'sleep'}[f.st]||f.st));
+  if(f.foe)o.push('foe '+sn(f.foe));if(f.self)o.push('self '+sn(f.self));if(f.heal)o.push('heals '+Math.round(f.heal*100)+'%');
+  if(f.prio)o.push('priority');if(f.recoil)o.push('recoil '+Math.round(f.recoil*100)+'%');if(f.foeSt===0)o.push('cures foe? no');return o.join(' · ')||'—'};
+ const rows=()=>{const q=$('#mq').value.trim().toLowerCase(),ty=$('#mt').value,fl=$('#mf').value;
+  let L=M.SPECIES.slice(1).filter(sp=>{
+   if(ty&&!sp.types.includes(ty))return false;
+   if(fl==='starter'&&!sp.starter)return false;if(fl==='rare'&&!sp.rare)return false;if(fl==='legend'&&!sp.legend)return false;if(fl==='wild'&&!wild.has(sp.id))return false;
+   if(!q)return true;return sp.name.toLowerCase().includes(q)||String(sp.id)===q||sp.learn.some(([,m])=>M.MOVES[m].name.toLowerCase().includes(q))||sp.types.some(t=>t.toLowerCase().includes(q))});
+  const v=sp=>msort.k==='name'?sp.name:msort.k==='types'?sp.types[0]:msort.k==='bst'?sp.bst:msort.k==='evo'?(sp.evo||999):msort.k==='catch'?sp.catch:sc.includes(msort.k)?sp.base[msort.k]:sp.id;
+  L.sort((a,b)=>{const x=v(a),y=v(b);return (x>y?1:x<y?-1:0)*msort.d});return L};
+ function detail(sp){
+  const chain=[];let c=sp;while(c.prev)c=M.SPECIES[c.prev];for(;c;c=c.next?M.SPECIES[c.next]:null){chain.push(c);}
+  const ev=chain.map((c,i)=>`<span ${c.id===sp.id?'style="font-weight:800"':''}>${c.name}</span>${c.next?` <span class="mut">→ Lv${c.evo} →</span> `:''}`).join('');
+  const bars=sc.map(k=>`<div style="display:flex;align-items:center;gap:6px"><span class="mut" style="width:42px;font-size:12px">${k.toUpperCase()}</span><b style="width:30px;text-align:right">${sp.base[k]}</b><div style="flex:1;height:8px;background:var(--line);border-radius:4px"><div style="width:${Math.min(100,sp.base[k]/1.6)}%;height:100%;border-radius:4px;background:var(--acc)"></div></div></div>`).join('');
+  const mv=sp.learn.map(([lv,id])=>{const m=M.MOVES[id];return `<tr><td>${lv}</td><td style="text-align:left"><b>${m.name}</b></td><td>${chip(m.type)}</td><td>${m.cat==='p'?'Physical':m.cat==='s'?'Special':'Status'}</td><td>${m.pow||'—'}</td><td>${m.acc}</td><td>${m.pp}</td><td style="text-align:left;white-space:normal">${fxText(m)}</td></tr>`}).join('');
+  const found=wild.has(sp.id)?`Route 1 · Lv${M.ROUTES.r1.levels[0]}–${M.ROUTES.r1.levels[1]} · ${Math.round(wild.get(sp.id)/tot*100)}% of encounters`:(sp.starter?'Starter choice':sp.rare&&!sp.legend?'Day-7 login reward / rare':sp.legend?'Legendary (coming in a later phase)':'Not yet placed in the world');
+  return `<td colspan="13" style="white-space:normal;text-align:left;background:var(--bg)"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="text-align:center">${S.img?'<span id="dsp"></span>':''}<div style="font-weight:800;font-size:16px">#${sp.id} ${sp.name}</div><div>${sp.types.map(chip).join('')}</div>${sp.legend?'<div style="color:#9c36b5;font-weight:800">★ Legendary</div>':sp.rare?'<div style="color:#9c36b5;font-weight:800">★ Rare</div>':''}</div><div style="min-width:240px;flex:1">${bars}<div style="margin-top:6px"><b>BST ${sp.bst}</b> · catch rate ${sp.catch} · ${sp.stages>1?'stage '+(sp.stage+1)+' of '+sp.stages:'does not evolve'}</div><div style="margin-top:4px">Evolution: ${ev}</div><div style="margin-top:4px">Found: ${found}</div></div></div><div class="scroll" style="margin-top:8px"><table style="font-size:13px"><thead><tr><th>Lv</th><th>Move</th><th>Type</th><th>Kind</th><th>Pow</th><th>Acc</th><th>PP</th><th>Effect</th></tr></thead><tbody>${mv}</tbody></table></div></td>`};
+ function draw(){
+  const L=rows();$('#mon-count').textContent='· '+L.length+' of '+M.COUNT;
+  const tb=$('#mtbl tbody');tb.innerHTML='';
+  for(const sp of L){
+   const tr=document.createElement('tr');tr.className='u';
+   tr.innerHTML=`<td>${sp.id}</td><td></td><td style="text-align:left"><b>${sp.name}</b>${sp.legend?' ★':sp.rare?' ✦':''}</td><td style="text-align:left">${sp.types.map(chip).join('')}</td>${sc.map(k=>`<td>${sp.base[k]}</td>`).join('')}<td><b>${sp.bst}</b></td><td>${sp.evo?'Lv'+sp.evo:'—'}</td><td>${sp.catch}</td>`;
+   tr.children[1].append(S.img(sp.id,36));
+   tr.onclick=()=>{open=open===sp.id?null:sp.id;draw()};tb.append(tr);
+   if(open===sp.id){const d=document.createElement('tr');d.innerHTML=detail(sp);tb.append(d);const slot=d.querySelector('#dsp');if(slot)slot.append(S.img(sp.id,96));}
+  }}
+ document.querySelectorAll('th[data-mk]').forEach(th=>th.onclick=()=>{const k=th.dataset.mk;msort=msort.k===k?{k,d:-msort.d}:{k,d:k==='name'||k==='types'||k==='id'||k==='evo'||k==='catch'?1:-1};draw()});
+ $('#mq').oninput=$('#mt').onchange=$('#mf').onchange=()=>{open=null;draw()};
+ const show=m=>{$('#pg-main').hidden=m;$('#pg-mon').hidden=!m;$('#tab-main').className=m?'ghost':'';$('#tab-mon').className=m?'':'ghost';if(m)draw()};
+ $('#tab-main').onclick=()=>show(false);$('#tab-mon').onclick=()=>show(true);
+})();
 function start(){$('#login').hidden=true;$('#app').hidden=false;load().catch(()=>{})}
 if(tok)start();
 </script></body></html>

@@ -105,6 +105,25 @@
     return h('div', { class: 'tabs' }, list.map(([id, label]) => h('button', { class: 'tab' + (id === cur ? ' on' : ''), onclick: () => { set(id); modalRefresh(); } }, label)));
   }
 
+  // ---------- Bitmonsters ----------
+  const MD = window.Mon;
+  let monBattle = false;
+  const bit = window.MonUI({
+    h, $, openModal, closeModal, send, toast, money,
+    getMe: () => me, refresh: () => { if (modalRefresh) modalRefresh(); }, isModalOpen: () => modalOpen(),
+    onBattle: (on, result) => {
+      monBattle = on;
+      if (on) { keys.clear(); if (typeof clearStick === 'function') clearStick(); }
+      else if (result === 'lose' && WD.center) { self.x = (WD.center.x + WD.center.w / 2) * TILE; self.y = (WD.center.y + WD.center.h + 1) * TILE; send({ t: 'move', x: self.x, y: self.y }); toast('You woke up at the Bitmon Center.'); }
+    },
+  });
+  let dailyShown = false;
+  setInterval(() => {            // login flow: pick a starter first, then the 7-day reward
+    if (!started || !me || !me.mon || monBattle || modalOpen() || !me.charDone) return;
+    if (!me.mon.starter) return bit.openStarter();
+    if (!me.mon.daily.claimed && !dailyShown) { dailyShown = true; bit.openDaily(); }
+  }, 1200);
+
   // ---------- networking ----------
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function connect() {
@@ -137,7 +156,9 @@
         $('#hud').hidden = false; $('#chat').hidden = false; $('#auth-root') && $('#auth-root').remove();
         closeModal(); updateHud(); updateOnline(); msMode(false); started = true; syncPhoneUI();
         rebuildLandGrid();
+        unstickWall();
         if (!me.charDone) openCreator();
+        if (m.mb) bit.start({ view: m.mb, events: [{ k: 'msg', text: 'Back in the battle!' }] });
         break;
       case 'me': me = m.me; updateHud(); if (modalRefresh && !(typing() && $('#overlay').contains(document.activeElement))) modalRefresh(); break;
       case 'players': {
@@ -164,6 +185,12 @@
       case 'baccarat_result': playBaccarat(m.r); break;
       case 'harvested_many': msel.sel.clear(); msBar(); break;
       case 'orc_work': if (Date.now() - (window._orcT || 0) > 15000) { window._orcT = Date.now(); toast('🧌 Your Orc worked the farm (' + m.n + ' job' + (m.n > 1 ? 's' : '') + ')'); } break;
+      case 'mb_start': bit.start(m); break;
+      case 'mb_turn': bit.turn(m); break;
+      case 'mb_err': bit.err(m.msg); break;
+      case 'mb_closed': bit.closed(); break;
+      case 'mon_daily_ok': bit.dailyOk(m); break;
+      case 'mon_box': bit.onBox(m); break;
       case 'chat': addChat(m); if (m.n === myName) self.say = { text: m.text, until: Date.now() + 6000 }; else if (players[m.n]) players[m.n].say = { text: m.text, until: Date.now() + 6000 }; break;
       case 'sys': addChat({ sys: true, text: m.text }); break;
       case 'err': toast(m.msg, true); if (casino.spinning && casino.game === 'baccarat' && !casino.bac) { clearTimeout(casino.bacWait); casino.spinning = false; casinoRefresh(); }
@@ -466,8 +493,32 @@
   { let sy = null; for (let y = 0; y < WD.height; y++) if (isSea(DOCK_X, y)) { sy = y; break; }
     if (sy != null) for (let y = sy - 1; y <= sy + 3; y++) dockSet.add(DOCK_X + ',' + y); }
   const seaCenter = (() => { let sx = 0, sz = 0, n = 0; for (const k of seaSet) { const [x, z] = k.split(',').map(Number); sx += x; sz += z; n++; } return n ? { x: sx / n + .5, z: sz / n + .5 } : null; })();
-  const solidRects = [WD.bank, WD.orcMarket].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
-  const blocked = (x, y) => solidRects.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1) || (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
+  // ---- Sunny Lots wall + Route 1 ----
+  const WALL = WD.wall || null;
+  const wallSkip = (tx, ty) => isSea(tx, ty) || dockSet.has(tx + ',' + ty);
+  const onWallTile = (tx, ty) => !!WALL && ((tx === 0 && ty <= WALL.y1) || (ty === 0 && tx <= WALL.x1) || (tx === Math.floor(WALL.x1) && ty <= WALL.y1) || (ty === Math.floor(WALL.y1) && tx <= WALL.x1));
+  const wallHit = (x, y) => {
+    if (!WALL) return false;
+    const X1 = WALL.x1 * TILE, Y1 = WALL.y1 * TILE, T = WALL.t * TILE, g = WALL.gates.e;
+    if (x > X1 + 12 || y > Y1) return false;
+    if (wallSkip(Math.floor(x / TILE), Math.floor(y / TILE))) return false;
+    if (x < T || y < T || y > Y1 - T) return true;
+    if (x > X1 - T - 2) return !(y > g.y0 * TILE && y < g.y1 * TILE);
+    return false;
+  };
+  const grassSet = new Set(), pathSet = new Set();
+  for (const [gx, gy, gw, gh] of (MD ? MD.ROUTES.r1.grass : [])) for (let yy = gy; yy < gy + gh; yy++) for (let xx = gx; xx < gx + gw; xx++) grassSet.add(xx + ',' + yy);
+  const addRoad = (x0, z0, x1, z1) => { for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) pathSet.add(x + ',' + z); };
+  if (WALL) { addRoad(74, 31, 119, 32); addRoad(76, 23, 119, 24); addRoad(76, 44, 119, 45); addRoad(94, 8, 95, 57); addRoad(76, 23, 77, 45); }
+  const inGrass = (tx, ty) => grassSet.has(tx + ',' + ty);
+  const routeColor = (tx, tz, chk) => pathSet.has(tx + ',' + tz) ? (chk ? '#dcc592' : '#d2ba86') : grassSet.has(tx + ',' + tz) ? (chk ? '#4d983a' : '#448f33') : (chk ? '#7fc34a' : '#76ba44');
+  const unstickWall = () => {
+    if (!WALL || !wallHit(self.x, self.y)) return;
+    const T = WALL.t * TILE;
+    self.x = Math.max(T + 4, Math.min(WALL.x1 * TILE - T - 4, self.x)); self.y = Math.max(T + 4, Math.min(WALL.y1 * TILE - T - 4, self.y));
+  };
+  const solidRects = [WD.bank, WD.orcMarket, WD.center].filter(Boolean).map(r => ({ x0: (r.x + .1) * TILE, x1: (r.x + r.w - .1) * TILE, y0: (r.y + .1) * TILE, y1: (r.y + r.h - .55) * TILE }));
+  const blocked = (x, y) => (wallHit(x, y) && !wallHit(self.x, self.y)) || solidRects.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1) || (x > shopRect.x0 - 8 && x < shopRect.x1 + 8 && y > shopRect.y0 + 4 && y < shopRect.y1 + 2)
     || (seaSet.size > 0 && isSea(Math.floor(x / TILE), Math.floor(y / TILE)) && !dockSet.has(Math.floor(x / TILE) + ',' + Math.floor(y / TILE)));
 
   // static scenery (built once from boxes)
@@ -475,7 +526,7 @@
   const piece = (B, x, z, r) => statics.push({ B, x, z, r: r || 1 });
   const SEAT = Vox.mk().add(0, 0, 0, .34, .13, .34, '#a0703c').add(0, .13, 0, .4, .03, .4, '#c99a62');   // little stool under a sitting player
   for (let ty = 0; ty < WD.height; ty++) for (let tx = 0; tx < WD.width; tx++) {
-    if (nearSea(tx, ty)) continue;
+    if (nearSea(tx, ty) || onWallTile(tx, ty)) continue;
     if (isMargin(tx, ty) && ((tx * 7 + ty * 13) % 5 === 0)) {
       const v = (tx * 3 + ty) % 3;
       piece(Vox.tree(v), tx + .5 + (((tx * 5 + ty) % 3) - 1) * .12, ty + .5, 1.45 + (v === 1 ? .1 : 0));
@@ -485,6 +536,77 @@
       piece(Vox.shrub((tx + ty) % 2), tx + .5, ty + .5, 1.0);
     } else if (isMargin(tx, ty) && ((tx * 13 + ty * 7) % 3 === 0)) {
       piece(Vox.tuft((tx + ty) % 4), tx + .3 + ((tx * 7 + ty) % 5) * .1, ty + .3 + ((tx + ty * 3) % 5) * .1, 1.0);
+    }
+  }
+  // ---- Sunny Lots stone wall ----
+  const WALL_H = 1.1;
+  function buildWall() {
+    const C1 = '#a8a392', CAP = '#d2ccba', RED = '#c2493a', RED2 = '#a63a30', WOOD = '#6b4a2a', IRON = '#3a3a40';
+    const T = WALL.t, X1 = WALL.x1, Y1 = WALL.y1, G = WALL.gates;
+    const runs = (L, skip, gap) => {
+      const out = []; let a = null;
+      for (let i = 0; i < Math.ceil(L); i++) {
+        const lo = i, hi = Math.min(i + 1, L), bad = skip(i) || (gap && hi > gap[0] && lo < gap[1]);
+        if (!bad && a == null) a = lo;
+        if (bad && a != null) { out.push([a, lo]); a = null; }
+      }
+      if (a != null) out.push([a, L]);
+      return out;
+    };
+    const seg = (horiz, fixed, a, b) => {
+      const n = b - a; if (n < .2) return;
+      const B = Vox.mk(), t = T;
+      if (horiz) { B.add(0, 0, 0, n, WALL_H, t, C1); B.add(0, WALL_H, 0, n, .08, t + .12, CAP); for (let i = 0; i + .7 <= n; i += 2) B.add(-n / 2 + i + .5, WALL_H + .08, 0, .7, .24, t * .8, CAP); }
+      else { B.add(0, 0, 0, t, WALL_H, n, C1); B.add(0, WALL_H, 0, t + .12, .08, n, CAP); for (let i = 0; i + .7 <= n; i += 2) B.add(0, WALL_H + .08, -n / 2 + i + .5, t * .8, .24, .7, CAP); }
+      piece(B, horiz ? (a + b) / 2 : fixed + t / 2, horiz ? fixed + t / 2 : (a + b) / 2, n / 2 + 1);
+    };
+    runs(X1, i => wallSkip(i, 0)).forEach(r => seg(true, 0, r[0], r[1]));
+    runs(X1, i => wallSkip(i, Math.floor(Y1)), [G.s.x0, G.s.x1]).forEach(r => seg(true, Y1 - T, r[0], r[1]));
+    runs(Y1, i => wallSkip(0, i)).forEach(r => seg(false, 0, r[0], r[1]));
+    runs(Y1, i => wallSkip(Math.floor(X1), i), [G.e.y0, G.e.y1]).forEach(r => seg(false, X1 - T, r[0], r[1]));
+    const tower = (x, z, w, h) => {
+      const B = Vox.mk();
+      B.add(0, 0, 0, w, h, w, C1); B.add(0, h * .45, 0, w + .06, .1, w + .06, CAP); B.add(0, h, 0, w + .22, .14, w + .22, CAP);
+      B.add(0, h + .14, 0, w * .9, .22, w * .9, RED); B.add(0, h + .36, 0, w * .62, .22, w * .62, RED2); B.add(0, h + .58, 0, w * .3, .22, w * .3, RED); B.add(0, h + .8, 0, .06, .4, .06, '#6b4a2a'); B.add(.12, h + 1.0, 0, .22, .14, .04, '#e03131');
+      piece(B, x, z, w + 1.5);
+    };
+    for (const [x, z] of [[.5, .5], [X1 - .5, .5], [.5, Y1 - .5], [X1 - .5, Y1 - .5]]) tower(x, z, 1.1, 1.7);
+    tower(X1 - T / 2, G.e.y0 - .75, 1.3, 2.0); tower(X1 - T / 2, G.e.y1 + .75, 1.3, 2.0);                      // east gate towers
+    tower(G.s.x0 - .65, Y1 - T / 2, 1.3, 2.0); tower(G.s.x1 + .65, Y1 - T / 2, 1.3, 2.0);                      // south gate towers
+    { const B = Vox.mk(), w = G.s.x1 - G.s.x0;                                                                 // closed south gate (decor)
+      B.add(0, 0, 0, w, 1.45, .3, WOOD); for (let i = 0; i < 6; i++) B.add(-w / 2 + (i + .5) * w / 6, 0, .16, .05, 1.45, .04, '#4e3519');
+      B.add(0, .3, .17, w, .12, .05, IRON); B.add(0, 1.0, .17, w, .12, .05, IRON); B.add(0, 1.45, 0, w + .1, .1, .36, CAP);
+      for (const sx of [-.5, .5]) B.add(sx * .5, .6, .2, .16, .2, .06, '#f2b632');
+      piece(B, (G.s.x0 + G.s.x1) / 2, Y1 - T / 2, w); }
+    // lanterns either side of the open east gate
+    for (const z of [G.e.y0 - .1, G.e.y1 + .1]) { const B = Vox.mk(); B.add(0, 0, 0, .1, .9, .1, WOOD); B.add(0, .9, 0, .26, .26, .26, '#ffe38a', .95); B.add(0, 1.16, 0, .32, .06, .32, WOOD); piece(B, X1 + .45, z, 1); }
+  }
+  if (WALL) buildWall();
+  // ---- Bitmon Center ----
+  function centerBoxes() {
+    const B = Vox.mk(), wall = '#fbf5ea', wallD = '#e6d9bf', roof = '#e0585a', roofD = '#b43d44', glass = '#a8e0f4', red = '#e03131';
+    B.add(0, 0, 0, 5.0, .12, 4.0, '#c9c2b3'); B.add(0, .12, 1.8, 1.8, .08, .3, '#ddd6c5');
+    B.add(0, .12, -.1, 4.5, 1.6, 3.2, wall); B.add(0, .12, -.1, 4.56, .28, 3.26, wallD);
+    B.add(0, 1.72, -.1, 4.9, .16, 3.6, roofD); B.add(0, 1.88, -.1, 4.5, .2, 3.2, roof); B.add(0, 2.08, -.1, 3.5, .2, 2.6, roof); B.add(0, 2.28, -.1, 2.4, .2, 1.8, roofD);
+    B.add(0, .2, 1.52, 1.1, 1.15, .08, '#5b3d22'); B.add(0, .24, 1.57, .94, 1.07, .05, glass, .9); B.add(0, .24, 1.6, .04, 1.07, .05, '#5b3d22');
+    for (const x of [-1.6, 1.6]) { B.add(x, .6, 1.52, .9, .75, .08, '#7a6a4c'); B.add(x, .64, 1.57, .78, .65, .05, glass, .9); B.add(x, .64, 1.6, .04, .65, .05, '#7a6a4c'); }
+    B.add(0, 1.38, 1.56, .8, .22, .06, '#fff'); B.add(0, 1.38, 1.6, .16, .16, .04, red); B.add(0, 1.38, 1.6, .5, .06, .04, red);
+    B.add(0, 2.46, .2, .9, .42, .9, '#ffffff'); B.add(0, 2.7, .2, .92, .2, .92, red); B.add(0, 2.62, .2, .96, .06, .96, '#222'); B.add(0, 2.52, 0.68, .22, .22, .06, '#fff'); B.add(0, 2.56, 0.7, .12, .12, .05, '#222');
+    for (const x of [-2.1, 2.1]) { B.add(x, .12, 1.3, .4, .4, .4, '#8a5a2b'); B.add(x, .5, 1.3, .5, .4, .5, '#3fae5a'); }
+    return B;
+  }
+  if (WD.center) piece(centerBoxes(), WD.center.x + WD.center.w / 2, WD.center.y + WD.center.h / 2, 3.2);
+  // ---- Route 1 scenery: tall-grass tufts, trees, flowers ----
+  if (WALL) {
+    const actors = (MD ? MD.NPCS.concat(MD.TRAINERS) : []);
+    const near = (x, z) => actors.some(a => Math.hypot(a.x - x, a.y - z) < 1.6);
+    const blade = (v) => { const B = Vox.mk(); B.add(-.07, 0, 0, .06, .42 + v * .06, .06, '#3f8a2c'); B.add(.07, 0, .05, .06, .5 + v * .04, .06, '#4ea23a'); return B; };
+    for (let tz = 0; tz < WD.height; tz++) for (let tx = 74; tx < WD.width; tx++) {
+      const k = tx + ',' + tz, hsh = (tx * 7 + tz * 13 + tx * tz) % 997;
+      if (isMargin(tx, tz) || pathSet.has(k)) continue;
+      if (grassSet.has(k)) { if (hsh % 7 === 0 && !near(tx, tz)) piece(blade(hsh % 3), tx + .3 + (hsh % 5) * .1, tz + .3 + (hsh % 4) * .13, .6); }
+      else if (hsh % 43 === 0 && !near(tx, tz)) piece(Vox.tree(hsh % 3), tx + .5, tz + .5, 1.5);
+      else if (hsh % 19 === 1 && !near(tx, tz)) piece(Vox.wildflower(hsh % 5), tx + .5, tz + .5, .8);
     }
   }
   // Fences + land posts follow each lot's real footprint (base 8x8 plus bought squares).
@@ -590,6 +712,41 @@
 
   // ---------- picking ----------
   function plantH(tile) { return [.25, .35, .7, 1][Vox.plantStage((now() - tile.at) / growMs(cat.SEED_BY[tile.seed]))]; }
+  // ---------- Bitmonster NPCs ----------
+  const NPC_LOOKS = [
+    { gender: 'male', skin: '#f5cba0', hairColor: '#5a3825', top: 'top_flannel', bottom: 'bot_khaki', hat: 'hat_red_cap', shoes: 'shoe_boots' },
+    { gender: 'female', skin: '#ffe0c7', hairColor: '#c0392b', top: 'top_blouse_dots', bottom: 'bot_plaid_skirt', hat: '', shoes: 'shoe_red' },
+    { gender: 'male', skin: '#c68642', hairColor: '#2b1b0e', top: 'top_hoodie_red', bottom: 'bot_jeans', hat: 'hat_beanie', shoes: 'shoe_plain' },
+    { gender: 'female', skin: '#e0ac69', hairColor: '#2b1b0e', top: 'top_sailor', bottom: 'bot_slacks', hat: 'hat_headband', shoes: 'shoe_plain' },
+    { gender: 'female', skin: '#ffe0c7', hairColor: '#e84393', top: 'top_polo_sky', bottom: 'bot_pink_skirt', hat: '', shoes: 'shoe_sandals' },
+    { gender: 'male', skin: '#f5cba0', hairColor: '#e6b800', top: 'top_star_tee', bottom: 'bot_overalls', hat: 'hat_straw', shoes: 'shoe_rain' },
+    { gender: 'male', skin: '#e0ac69', hairColor: '#d9d9d9', top: 'top_purple_jacket', bottom: 'bot_slacks', hat: 'hat_tophat', shoes: 'shoe_plain' },
+    { gender: 'female', skin: '#8d5524', hairColor: '#8e44ad', top: 'top_heart', bottom: 'bot_jeans', hat: 'hat_flowers', shoes: 'shoe_plain' },
+    { gender: 'male', skin: '#5c3a1e', hairColor: '#2b1b0e', top: 'top_chef', bottom: 'bot_khaki', hat: 'hat_cowboy', shoes: 'shoe_boots' },
+    { gender: 'female', skin: '#f5cba0', hairColor: '#2e86de', top: 'top_tee_white', bottom: 'bot_shorts_grey', hat: 'hat_helmet', shoes: 'shoe_plain' },
+  ];
+  const monActors = () => (MD && WALL ? MD.NPCS.concat(MD.TRAINERS) : []);
+  const beatenSet = () => new Set((me && me.mon && me.mon.beaten) || []);
+  let lastGT = '', grassSteps = 0, encCool = 0;
+  const watched = {};
+  function monStep() {
+    if (!me || !me.mon || !me.mon.starter || monBattle || modalOpen()) return;
+    const tx = Math.floor(self.x / TILE), ty = Math.floor(self.y / TILE), k = tx + ',' + ty;
+    if (k !== lastGT) {
+      lastGT = k;
+      if (inGrass(tx, ty) && performance.now() > encCool) {
+        grassSteps++;
+        if (grassSteps >= 3 && Math.random() < 1 / 9) { grassSteps = 0; encCool = performance.now() + 3500; send({ t: 'mon_encounter', route: 'r1' }); }
+      }
+    }
+    const done = beatenSet();
+    for (const tr of MD.TRAINERS) {                  // trainers spot you when you walk up to them
+      if (done.has(tr.id)) continue;
+      const d = Math.hypot(self.x / TILE - tr.x, self.y / TILE - tr.y);
+      if (d < 3.3 && !watched[tr.id]) { watched[tr.id] = 1; keys.clear(); bit.challenge(tr); return; }
+      if (d > 7) watched[tr.id] = 0;
+    }
+  }
   function pickAt(bx, by) {
     // shop (tall building): test a few heights
     for (const Y of [.3, 1, 1.6]) { const g = view.pick(bx, by, Y); if (g.x > WD.shop.x - .05 && g.x < WD.shop.x + WD.shop.w + .05 && g.z > WD.shop.y - .05 && g.z < WD.shop.y + WD.shop.h + .05) return { shop: true }; }
@@ -607,8 +764,14 @@
         if (Math.abs(bx - f[0]) < hw && by < f[1] + 6 && by > tp[1] - 4 && (!cb || f[2] < cb.d)) cb = { c, d: f[2] };
       }
       if (cb) return { critter: cb.c }; }
+    { let ab = null;     // NPCs + trainers (screen-space box around the sprite)
+      for (const a of monActors()) {
+        const f = view.toScreen(a.x, 0, a.y), tp = view.toScreen(a.x, 1.25, a.y), hw = Math.max(14, view.ppt * .4);
+        if (Math.abs(bx - f[0]) < hw && by < f[1] + 6 && by > tp[1] - 4 && (!ab || f[2] < ab.d)) ab = { a, d: f[2] };
+      }
+      if (ab) return ab.a.team ? { trainer: ab.a } : { npc: ab.a }; }
     for (const t of (WD.casino || [])) if (Math.hypot(g0.x - t.x, g0.z - t.y) < 1.4) return { casino: t };
-    for (const [kk, r] of [['bank', WD.bank], ['orcMarket', WD.orcMarket]]) if (r && g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { [kk]: true };
+    for (const [kk, r] of [['bank', WD.bank], ['orcMarket', WD.orcMarket], ['center', WD.center]]) if (r && g0.x > r.x - .1 && g0.x < r.x + r.w + .1 && g0.z > r.y - 1.6 && g0.z < r.y + r.h + .1) return { [kk]: true };
     // POIs (stalls / pens / pet shop / bushes / park)
     for (const s of (WD.stalls || [])) if (Math.hypot(g0.x - s.x, g0.z - s.y) < 1.3) return { stall: s };
     if (WD.petShop && g0.x > WD.petShop.x && g0.x < WD.petShop.x + WD.petShop.w && g0.z > WD.petShop.y && g0.z < WD.petShop.y + WD.petShop.h) return { petShop: true };
@@ -648,6 +811,9 @@
     if (hit.shop) return tryShop();
     if (hit.bank) return openBank();
     if (hit.orcMarket) return openOrc();
+    if (hit.center) return bit.openCenter();
+    if (hit.npc) return bit.talk(hit.npc);
+    if (hit.trainer) return bit.challenge(hit.trainer);
     if (hit.critter) return openCritter(hit.critter);
     if (hit.casino) return openCasino(hit.casino.id);
     if (hit.post != null) return openLandPost(hit.post);
@@ -897,6 +1063,7 @@
     });
   }
   $('#b-orc').onclick = () => me && openOrc();
+  $('#b-mon').onclick = () => me && bit.openParty();
 
   // ---------- 🏦 Sunny Bank ----------
   const bankUI = { amt: '', tab: 'save', stamp: 0 };
@@ -1488,10 +1655,11 @@
     }
     if (typing()) { if (e.key === 'Escape') document.activeElement.blur(); return; }
     if (e.key === 'Escape') { if (modalOpen() && !modalLocked) closeModal(); else if (msel.on) msMode(false); return; }
-    if (modalOpen()) return;
+    if (modalOpen() || monBattle) return;
     const k = e.key.toLowerCase(); keys.add(k);
     if (k === 'f') tryShop();
     if (k === 'b') openBag();
+    if (k === 'm') bit.openParty();
     if (k === 'i') openWardrobe();
     if (k === 'g') openEmotes();
     if (k === 'q') rotate(-1);
@@ -1758,7 +1926,7 @@
 
     // movement relative to the camera (WASD / arrows / phone stick)
     let ix = 0, iy = 0;
-    if (!modalOpen() && !typing()) {
+    if (!modalOpen() && !typing() && !monBattle) {
       if (keys.has('a') || keys.has('arrowleft')) ix--; if (keys.has('d') || keys.has('arrowright')) ix++;
       if (keys.has('w') || keys.has('arrowup')) iy++; if (keys.has('s') || keys.has('arrowdown')) iy--;
       if (stick.active) { ix += stick.x; iy += stick.y; }
@@ -1774,6 +1942,7 @@
       const sp = (sprint ? 280 : 190) * dt * mag;
       let nx = Math.max(10, Math.min(WD.width * TILE - 10, self.x + wx * sp)), ny = Math.max(10, Math.min(WD.height * TILE - 10, self.y + wz * sp));
       if (!blocked(nx, self.y)) self.x = nx; if (!blocked(self.x, ny)) self.y = ny;
+      monStep();
       self.psi += angDiff(self.psi, Math.atan2(wx, wz)) * Math.min(1, dt * 14);
       self.walk += dt * (sprint ? 16 : 11);
     }
@@ -1799,6 +1968,7 @@
       else if (houseFloor) col = chk ? '#dcb97c' : '#d2ae70';
       else if (li >= 0) col = chk ? '#86cd4e' : '#7ec548';
       else if (isMargin(tx, tz)) col = chk ? '#6fb847' : '#66ae41';
+      else if (WALL && tx >= 74) col = routeColor(tx, tz, chk);
       else col = chk ? '#cdb88f' : '#c3ad84'; // cobble lane
       view.quad(tx, tz, tx + 1, tz + 1, 0.0, col);
       if (isSea(tx, tz)) {
@@ -1884,6 +2054,7 @@
     const myFxT = (performance.now() - (self.emoteAt || 0)) / 1000;
     if (self.emote === 'sit') view.add(SEAT, self.x / TILE, 0, self.y / TILE, 0, 1);
     view.addCharacter(me.avatar, cat, self.x / TILE, self.y / TILE, 1.12, self.walk, moving, { pump: { speed: 2.4, amp: .022 }, emote: self.emote, et: myFxT });
+    for (const a of monActors()) view.addCharacter(NPC_LOOKS[(a.look || 0) % NPC_LOOKS.length], cat, a.x, a.y, 1.08, 0, false, { pump: { speed: 2.0, amp: .02, ph: a.x } });
     updateCritters(dt);
     for (const c of critters) {
       const sc = c.isOrc ? 1.12 : c.pet ? 0.85 : (c.kind === 'cow' ? 1.15 : 0.95);
@@ -1930,7 +2101,20 @@
       const cys = WD.casino.map(t => t.y), mid = toPage(WD.casino[0].x, 2.3, (Math.min(...cys) + Math.max(...cys)) / 2);
       lctx.font = 'bold 17px Trebuchet MS'; lctx.textAlign = 'center'; lctx.lineWidth = 4; lctx.strokeStyle = '#3b0a4a'; lctx.strokeText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.fillStyle = '#ffe066'; lctx.fillText('🎰 SUNNY CASINO', mid[0], mid[1]); lctx.textAlign = 'left';
     }
-    for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
+    for (const [nm, r, yy] of [['🏦 Sunny Bank', WD.bank, 3.5], ['🧌 Orc Market', WD.orcMarket, 3.4], ['🏥 Bitmon Center', WD.center, 3.1]]) if (r) { const p = toPage(r.x + r.w / 2, yy, r.y + r.h / 2); if (p[0] > -80 && p[0] < vw + 80) tag(nm, p[0], p[1], '#fff3c4'); }
+    if (WALL) {
+      const gE = toPage(WALL.x1 + 1.2, 1.6, (WALL.gates.e.y0 + WALL.gates.e.y1) / 2);
+      if (gE[0] > -120 && gE[0] < vw + 120) tag('East Gate → Route 1', gE[0], gE[1], '#fff3c4');
+      const gS = toPage((WALL.gates.s.x0 + WALL.gates.s.x1) / 2, 2.0, WALL.y1 - .3);
+      if (gS[0] > -120 && gS[0] < vw + 120) tag('South Gate — closed (coming soon)', gS[0], gS[1], '#ffc9c9');
+      const rt = toPage(96, 0, 30); if (rt[0] > -80 && rt[0] < vw + 80) tag('ROUTE 1', rt[0], rt[1], '#d3f9d8');
+      const done = beatenSet();
+      for (const a of monActors()) {
+        const p = toPage(a.x, CHAR_HEAD_Y(1.08), a.y); if (p[0] < -60 || p[0] > vw + 60 || p[1] < -40 || p[1] > vh + 40) continue;
+        tag((a.team ? '⚔ ' : '💬 ') + a.name, p[0], p[1] - 3, a.team ? (done.has(a.id) ? '#adb5bd' : '#ffa8a8') : '#a5d8ff');
+        if (a.team && !done.has(a.id)) { lctx.font = 'bold 20px sans-serif'; lctx.textAlign = 'center'; lctx.fillStyle = '#ff3b30'; lctx.fillText('!', p[0], p[1] - 18 - Math.abs(Math.sin(t * 4)) * 4); lctx.textAlign = 'left'; }
+      }
+    }
     if (WD.petShop) { const p = toPage(WD.petShop.x + WD.petShop.w / 2, 1.8, WD.petShop.y + WD.petShop.h / 2); tag('Pet Shop', p[0], p[1], '#e5dbff'); }
     for (const [id, pen] of Object.entries(WD.pens || {})) { const p = toPage(pen.x + pen.w / 2, 1.2, pen.y + pen.h / 2); tag(id[0].toUpperCase() + id.slice(1) + ' Pen', p[0], p[1], '#fff'); }
     if (WD.park) { const p = toPage(WD.park.x + WD.park.w / 2, 1.4, WD.park.y + WD.park.h / 2); tag('Mini Park', p[0], p[1], '#d3f9d8'); }
@@ -1957,6 +2141,9 @@
       else if (hoverTile.casino) hint = 'Click: ' + hoverTile.casino.name + ' (min bet ' + money(MIN_BET) + ')';
       else if (hoverTile.critter) hint = hoverTile.critter.owner === myName ? 'Click: name' + (hoverTile.critter.kind === 'cow' ? ' / milk' : hoverTile.critter.kind === 'sheep' ? ' / shear' : '') + ' your ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) : 'Click: see this ' + (hoverTile.critter.pet ? 'pet' : hoverTile.critter.kind) + "'s name";
       else if (hoverTile.bank) hint = 'Click: Sunny Bank (savings & loans)';
+      else if (hoverTile.center) hint = 'Click: Bitmon Center (free healing & Bit Mart)';
+      else if (hoverTile.npc) hint = 'Click: talk to ' + hoverTile.npc.name;
+      else if (hoverTile.trainer) hint = 'Click: challenge ' + hoverTile.trainer.name;
       else if (hoverTile.orcMarket) hint = 'Click: Orc Market (hire a farm Orc)';
       else if (hoverTile.pen) hint = 'Click: ' + hoverTile.pen + ' pen';
       else if (hoverTile.petShop) hint = 'Click: Pet Shop';

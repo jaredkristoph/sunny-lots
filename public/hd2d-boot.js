@@ -15,6 +15,9 @@ function loadScript(src) {
   try {
     await loadScript('voxel.js');
     await loadScript('minigames.js');
+    await loadScript('monsters.js');
+    await loadScript('monsprite.js');
+    await loadScript('mon.js');
     await loadScript('game.js');
   } catch (err) {
     console.error(err);

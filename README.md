@@ -74,3 +74,14 @@ Pick a username, the server generates a password and shows it once. There is no 
 - **🃏 Blackjack**: play 1–5 hands at once; split pairs (up to 5 hands total), double, blackjack pays 3:2.
 - **🎴 Baccarat** (Punto Banco): Player / Banker (0.95:1) / Tie (8:1) / pairs (11:1), real third-card rules.
 - **⬆⬇ Higher / Lower**: guess the next card, build a multiplier streak, cash out any time (3% edge per guess, ties win).
+
+## Bitmonsters 🐾 (Phase 1)
+Sunny Lots is now a walled hub town. The **east gate** leads to **Route 1** (open world, tall grass, trainers, talkers); the south gate is a closed prop for a later region.
+
+- **151 original bitmonsters** (`public/monsters.js`): 12 types with a full type chart, 66 moves with **PP**, base stats, levels, evolution lines, 3 starters (Embrix 🔥 / Mossling 🌿 / Ripplet 💧), a rare Day-7 line (Dracolet) and 5 legendaries (not yet placed in the world).
+- **Login flow**: first login → choose a starter → 7-day daily reward (Day 7 = Dracolet Lv10 + Master Orb). Streak resets if a day is missed.
+- **Battles** (`battle.js`, server-authoritative): turn-based, PP + Struggle, STAB/type effectiveness, stat stages, burn/poison/paralysis/sleep, XP/level-up/evolution, catching with 10 orb kinds (Bit, Great, Ultra, Master, Net, Dusk, Quick, Timer, Repeat, Heal), potions/revives/ether. Wild encounters happen in Route 1 tall grass; trainers challenge you when you walk up, or click them.
+- **Bitmon Center** (inside the east side of town): free healing + Bit Mart. `🐾 Bitmon` button (or `M`): party, box, dex, items, nicknames.
+- **Admin → 🐾 Bitmonsters**: searchable list of all 151 with types, base stats, evolutions, full learnsets (level, power, accuracy, PP, effects) and where each is found.
+
+Coming in later phases: 8 gyms + badges, legendary encounters, player-vs-player battles, a much larger open world.
